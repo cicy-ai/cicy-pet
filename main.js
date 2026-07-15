@@ -114,6 +114,18 @@ app.whenReady().then(async () => {
     // 模型它自己带，所以启动就把宠物拉起来。
     createPetWindow().catch((e) => console.error('[pet] autostart failed:', e.message));
 
+    // 拍摄剧本模式的全局快捷键（拍抖音：镜头外接话，按键让 Mao 说下一句）。
+    // Option+R = 开拍准备（Mao 藏到屏幕外）；Option+M = 下一句台词。
+    // 用 executeJavaScript 直接驱动 pet.html 的 window.petScript，不动 preload。
+    const { globalShortcut } = require('electron');
+    const petEval = (code) => {
+        if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
+            ctx.petWindow.webContents.executeJavaScript(code).catch(() => {});
+        }
+    };
+    globalShortcut.register('Alt+R', () => petEval('window.petScript && window.petScript.reset()'));
+    globalShortcut.register('Alt+M', () => petEval('window.petScript && window.petScript.next()'));
+
     // Initialize TTS after windows are created (non-blocking)
     setImmediate(async () => {
         const voicevoxDir = ctx.pathUtils.getVoicevoxPath();

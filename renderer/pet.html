@@ -171,25 +171,59 @@
     const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 
     const MOVES = {
-      // 入场特效：从右上角屏外嗖地斜冲进来，边转一圈边放大，冲过头再弹回定住。
+      // 入场特效：从窗口顶外掉下来，落地压扁再弹两下定住。
+      // 注意窗口只有 ~340×420，模型飞出画布就直接被裁掉看不见，
+      // 所以全程动作必须留在窗口内——「跳水式落地」在小画布里最显眼。
       flyin: {
-        label: "飞入", dur: 950,
+        label: "飞入", dur: 1600,
         tf: (p) => {
-          const eb = easeOutBack(p);      // 位置：过冲回弹
-          const eo = easeOutCubic(p);     // 缩放
-          const punch = Math.sin(Math.PI * p) * 0.13;   // 中途略微「冲向镜头」鼓一下
-          // 距离按窗口尺寸走：从右上角刚出屏处冲进来（窗口小，别飞太远否则大半程看不见）
-          const W = window.innerWidth, H = window.innerHeight;
-          return {
-            dx: (1 - eb) * W * 0.6,       // 右侧刚出屏处飞入
-            dy: (1 - eb) * -H * 0.42,     // 上方
-            sx: 0.14 + eo * 0.86 + punch, // 从 14% 放大到 100%，中途过冲
-            sy: 0.14 + eo * 0.86 + punch,
-            rot: (1 - eo) * 6.5,          // 边飞边转约一圈，落定归零
-          };
+          const H = window.innerHeight;
+          if (p < 0.5) {
+            // 前半：自由落体（加速掉落），带一点左右飘和倾斜
+            const f = p / 0.5, e = f * f;
+            return {
+              dx: 26 * Math.sin(3 * Math.PI * f) * (1 - f),
+              dy: (1 - e) * -H,           // 从顶外一路掉到基准位
+              sx: 1, sy: 1,
+              rot: 0.14 * Math.sin(2 * Math.PI * f),
+            };
+          }
+          // 后半：落地——压扁横向鼓起，指数回弹，同时小跳两下
+          const q = (p - 0.5) / 0.5;
+          const sq = Math.exp(-6 * q) * 0.22;
+          const hop = Math.abs(Math.sin(q * Math.PI * 2)) * (1 - q) * H * 0.05;
+          return { dx: 0, dy: -hop, sx: 1 + sq, sy: 1 - sq, rot: 0 };
         },
         param: (p, put) => { put("headZ", (1 - p) * 0.5); put("bodyZ", (1 - p) * 0.3); },
         sfx: flyinSfx,
+      },
+      // superfly 的模型姿势段：窗口横穿桌面时她保持「超人横飞」，落地瞬间立正+压扁。
+      // 时长要和 windowFlight 的 FLY_MS+BOUNCE_MS 完全对齐（窗口动画和姿势共用进度）。
+      superfly: {
+        label: "螺旋飞入", dur: 3100,
+        // 三段：螺旋接近(0~0.77，对齐 SPIRAL_MS=2400)由小变大、随轨道左右压弯；
+        // 到位瞬间弹性放大「啵」地定格；尾段晕头转向左右摇。
+        tf: (p) => {
+          const P1 = 0.77;
+          if (p < P1) {
+            const f = p / P1;
+            const s = 0.15 + 0.85 * f * f * (3 - 2 * f);   // smoothstep 由小变大
+            const bank = 0.15 * Math.sin(SPIRAL_TURNS * 2 * Math.PI * f) * (1 - f);
+            return { dx: 0, dy: 0, sx: s, sy: s, rot: bank };
+          }
+          if (p < 0.85) {
+            const q = (p - P1) / 0.08;
+            const pop = 0.12 * Math.sin(Math.PI * q) * Math.exp(-2 * q);
+            return { dx: 0, dy: 0, sx: 1 + pop, sy: 1 + pop, rot: 0 };
+          }
+          const w = (p - 0.85) / 0.15;
+          return { dx: 0, dy: 0, sx: 1, sy: 1, rot: 0.09 * Math.sin(3 * Math.PI * w) * (1 - w) };
+        },
+        param: (p, put) => {
+          if (p < 0.77) { put("headZ", 0.4); }
+          else { const w = (p - 0.77) / 0.23; put("headX", 0.8 * Math.sin(3 * Math.PI * w) * (1 - w)); }
+        },
+        sfx: superflySfx,
       },
       spin: {
         label: "转圈", dur: 1400,
@@ -270,41 +304,161 @@
     }
 
     // 飞入音效：WebAudio 现场合成，不依赖素材文件（也就没有素材版权问题）。
-    // 「嗖——」= 白噪声过带通滤波做频率扫掠；「啵♪」= 正弦音高快速下坠，掐在落地回弹那一刻。
+    // 卡通「piu~~」下落哨声（音高从高滑到低，对准前半 0.8s 的下落），
+    // 落地一声闷响 + 弹簧 boing（音高上下晃两下衰减），对准压扁回弹。
     function flyinSfx() {
       audioCtx = audioCtx || new AudioContext();
       audioCtx.resume();
       const t0 = audioCtx.currentTime, out = audioCtx.destination;
 
-      const len = Math.floor(audioCtx.sampleRate * 0.8);
-      const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-      const noise = audioCtx.createBufferSource();
-      noise.buffer = buf;
-      const bp = audioCtx.createBiquadFilter();
-      bp.type = "bandpass"; bp.Q.value = 1.2;
-      bp.frequency.setValueAtTime(300, t0);
-      bp.frequency.exponentialRampToValueAtTime(2600, t0 + 0.45);
-      bp.frequency.exponentialRampToValueAtTime(700, t0 + 0.8);
-      const ng = audioCtx.createGain();
-      ng.gain.setValueAtTime(0.0001, t0);
-      ng.gain.exponentialRampToValueAtTime(0.5, t0 + 0.28);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8);
-      noise.connect(bp).connect(ng).connect(out);
-      noise.start(t0); noise.stop(t0 + 0.85);
+      const whistle = audioCtx.createOscillator();
+      whistle.type = "sine";
+      whistle.frequency.setValueAtTime(1250, t0);
+      whistle.frequency.exponentialRampToValueAtTime(380, t0 + 0.8);
+      const wg = audioCtx.createGain();
+      wg.gain.setValueAtTime(0.0001, t0);
+      wg.gain.exponentialRampToValueAtTime(0.4, t0 + 0.1);
+      wg.gain.setValueAtTime(0.4, t0 + 0.7);
+      wg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.82);
+      whistle.connect(wg).connect(out);
+      whistle.start(t0); whistle.stop(t0 + 0.85);
 
-      const tl = t0 + 0.62;   // 落地时刻 ≈ dur 950ms 里 easeOutBack 收住的位置
-      const osc = audioCtx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(560, tl);
-      osc.frequency.exponentialRampToValueAtTime(170, tl + 0.16);
-      const og = audioCtx.createGain();
-      og.gain.setValueAtTime(0.0001, tl);
-      og.gain.exponentialRampToValueAtTime(0.4, tl + 0.02);
-      og.gain.exponentialRampToValueAtTime(0.0001, tl + 0.22);
-      osc.connect(og).connect(out);
-      osc.start(tl); osc.stop(tl + 0.25);
+      const tl = t0 + 0.8;    // 落地时刻 = dur 1600ms 的中点
+      const thump = audioCtx.createOscillator();
+      thump.type = "sine";
+      thump.frequency.setValueAtTime(200, tl);
+      thump.frequency.exponentialRampToValueAtTime(65, tl + 0.1);
+      const tg = audioCtx.createGain();
+      tg.gain.setValueAtTime(0.0001, tl);
+      tg.gain.exponentialRampToValueAtTime(0.6, tl + 0.015);
+      tg.gain.exponentialRampToValueAtTime(0.0001, tl + 0.18);
+      thump.connect(tg).connect(out);
+      thump.start(tl); thump.stop(tl + 0.2);
+
+      const boing = audioCtx.createOscillator();
+      boing.type = "triangle";
+      boing.frequency.setValueAtTime(420, tl);
+      boing.frequency.exponentialRampToValueAtTime(150, tl + 0.07);
+      boing.frequency.exponentialRampToValueAtTime(280, tl + 0.16);
+      boing.frequency.exponentialRampToValueAtTime(120, tl + 0.34);
+      const bg = audioCtx.createGain();
+      bg.gain.setValueAtTime(0.0001, tl);
+      bg.gain.exponentialRampToValueAtTime(0.35, tl + 0.02);
+      bg.gain.exponentialRampToValueAtTime(0.0001, tl + 0.42);
+      boing.connect(bg).connect(out);
+      boing.start(tl); boing.stop(tl + 0.45);
+    }
+
+    // ---------- 破窗入场：整个窗口横穿真实桌面 ----------
+    // 代入感的来源：无边框透明窗口本身从屏幕右缘外冲进来，看起来就是
+    // Mao 本人横着飞过桌面，砸回原位弹两下，落定后开口吐槽。
+    const SPIRAL_MS = 2400, SPIRAL_TURNS = 3, R_MAX = 170;  // 螺旋时长/圈数/最大圈半径
+    const ENTRANCE_LINES = [
+      "哇……转晕了转晕了……嘿嘿，我来啦！",
+      "嘿嘿，吓到你了吧？",
+      "呼……绕了好大一圈才找到你！",
+      "咦？这是谁的电脑？算了，以后就是我的啦！",
+    ];
+    async function windowFlight(line) {
+      if (!api || !model) { playMove("flyin"); return; }  // 浏览器里没有窗口控制，退回画布内版本
+      const b = await api.getWindowBounds();
+      const sw = ((window.screen && window.screen.width) || 1680);
+      const sh = ((window.screen && window.screen.height) || 1050);
+      // 起点：屏幕右下角；终点：屏幕中心。螺旋圈半径由小变大，最后 1/5 收拢落进中心。
+      const from = { x: sw - b.width / 2 - 30, y: sh - b.height / 2 - 40 };
+      const to = { x: sw / 2, y: sh / 2 - 30 };
+      playMove("superfly");
+      const t0 = performance.now();
+      await new Promise((done) => {
+        (function step() {
+          const t = performance.now() - t0;
+          if (t < SPIRAL_MS) {
+            const f = t / SPIRAL_MS;
+            const ease = f * f * (3 - 2 * f);          // 螺旋中心从右下角滑向屏幕中心
+            const cx = from.x + (to.x - from.x) * ease;
+            const cy = from.y + (to.y - from.y) * ease;
+            const r = R_MAX * (f < 0.8 ? f / 0.8 : (1 - f) / 0.2);   // 圈由小变大，末段收拢
+            const th = SPIRAL_TURNS * 2 * Math.PI * f;
+            const x = cx + r * Math.cos(th) - b.width / 2;
+            const y = Math.max(28, Math.min(sh - 140, cy + r * 0.8 * Math.sin(th) - b.height / 2));
+            api.setWindowPosition(Math.round(x), Math.round(y));
+          } else {
+            api.setWindowPosition(Math.round(to.x - b.width / 2), Math.round(to.y - b.height / 2));
+            done(); return;
+          }
+          requestAnimationFrame(step);
+        })();
+      });
+      try { speak(line || ENTRANCE_LINES[Math.floor(Math.random() * ENTRANCE_LINES.length)]); } catch {}
+    }
+
+    // ---------- 拍摄剧本模式 ----------
+    // 拍抖音用：Mao 的台词按顺序排好，主进程注册的全局快捷键每按一次
+    // 就 next() 一步（说下一句+做动作），镜头外的人负责接话。
+    // 流程：藏起来 → 螺旋入场“哈喽” → 自我介绍 → 会什么 → 报今天天气。
+    const SCRIPT = [
+      { move: "entrance", text: "哈喽——！" },
+      { text: "我叫 Mao！住在你电脑里的小精灵哦～你天天敲键盘，吵得我睡不着，今天特地出来认识一下！" },
+      { text: "我会的可多啦！会聊天、会卖萌、会陪你写代码，还会帮你数 bug——昨天你写了二十七个哦！" },
+      { move: "spin", text: "查到啦！今天上海大晴天，现在三十二度，最高三十六度——热死喵了！建议你哪儿也别去，在家陪我吹空调！" },
+    ];
+    let scriptIdx = 0;
+    window.petScript = {
+      // 开拍准备：Mao 溜到屏幕外藏好（桌面干干净净，等入场）
+      async reset() {
+        scriptIdx = 0;
+        stopSpeaking();
+        if (api) {
+          const sw = (window.screen && window.screen.width) || 1680;
+          await api.setWindowPosition(sw + 80, Math.round(((window.screen && window.screen.height) || 1050) / 2));
+        }
+        return "ready";
+      },
+      async next() {
+        const s = SCRIPT[scriptIdx];
+        if (!s) return "end";
+        scriptIdx++;
+        if (s.move === "entrance") await windowFlight(s.text);
+        else { if (s.move) playMove(s.move); speak(s.text); }
+        return scriptIdx + "/" + SCRIPT.length;
+      },
+    };
+
+    // superfly 音效：飞行段长哨声，落地闷响+弹簧，第二跳补一声小闷响
+    function superflySfx() {
+      audioCtx = audioCtx || new AudioContext();
+      audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      const tone = (type, freqs, gains) => {   // freqs/gains: [[t,v],...] 相对 t0
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = type;
+        freqs.forEach(([t, v], i) => i ? o.frequency.exponentialRampToValueAtTime(v, t0 + t)
+                                       : o.frequency.setValueAtTime(v, t0 + t));
+        gains.forEach(([t, v], i) => i ? g.gain.exponentialRampToValueAtTime(v, t0 + t)
+                                       : g.gain.setValueAtTime(v, t0 + t));
+        o.connect(g).connect(out);
+        const last = gains[gains.length - 1][0];
+        o.start(t0 + freqs[0][0]); o.stop(t0 + last + 0.05);
+      };
+      // 螺旋接近：音高盘旋上升 + 颤音，音量由远及近渐大（对齐 SPIRAL_MS=2.4s）
+      const swirl = audioCtx.createOscillator();
+      swirl.type = "sine";
+      const N = 80, curve = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const t = i / (N - 1);
+        curve[i] = 300 * Math.pow(3.8, t) * (1 + 0.1 * Math.sin(2 * Math.PI * 5 * t * 2.4));
+      }
+      swirl.frequency.setValueCurveAtTime(curve, t0, 2.4);
+      const sg = audioCtx.createGain();
+      sg.gain.setValueAtTime(0.07, t0);
+      sg.gain.exponentialRampToValueAtTime(0.5, t0 + 2.2);
+      sg.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.45);
+      swirl.connect(sg).connect(out);
+      swirl.start(t0); swirl.stop(t0 + 2.5);
+      // 到位「啵」+ 轻弹簧
+      tone("sine", [[2.4, 260], [2.5, 80]], [[2.4, 0.0001], [2.42, 0.7], [2.58, 0.0001]]);
+      tone("triangle", [[2.4, 430], [2.48, 150], [2.58, 280], [2.78, 110]],
+                       [[2.4, 0.0001], [2.43, 0.4], [2.82, 0.0001]]);
     }
 
     // transform 动画每帧重算（参数动画走 beforeModelUpdate，见 loadModel）
@@ -437,7 +591,7 @@
     loadModel(cfg.model).then(() => {
       bus.postMessage({ type: "ready" });
       // ?entrance=1 → 一加载就自动飞入（拍视频时开着它，打开=Mao 冲进来）
-      if (params.get("entrance")) setTimeout(() => playMove("flyin"), 350);
+      if (params.get("entrance")) setTimeout(() => windowFlight(), 500);
     });
 
     // 设置页发来的指令
@@ -678,7 +832,7 @@
     }
 
     // 外部驱动用：pet.speak("…") / pet.motion()
-    window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => playMove("flyin"), get model() { return model; } };
+    window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => windowFlight(), get model() { return model; } };
   </script>
 </body>
 
