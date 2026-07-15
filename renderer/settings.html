@@ -541,6 +541,11 @@
     let voices = [];
     async function loadVoices() {
       voices = await (await fetch("/voices")).json();
+      // 当前引擎没音色（如 Windows 上没 python → edge 为空）就自动切到有音色的那个
+      if (!voices.some((v) => v.engine === cfg.engine)) {
+        const alt = voices[0]?.engine;
+        if (alt) { cfg.engine = alt; save(); }
+      }
       $("engine").value = cfg.engine;
       fillVoices();
     }

@@ -27,6 +27,11 @@ const { createPathUtils } = require('./src/utils/path-utils');
 const { TTSService } = require('./src/core/tts-service');
 const { TranslationService } = require('./src/core/translation-service');
 const { createServer } = require('./src/main/renderer-server');
+const { ensureModels } = require('./src/main/model-fetcher');
+
+// 模型包（Live2D §4.1.1 不随安装包分发）——首次运行从 OSS 拉到 userData。
+const MODELS_URL = process.env.CICY_PET_MODELS_URL
+    || 'https://cicy-1372193042-cn.oss-cn-shanghai.aliyuncs.com/releases/cicy-pet-models.tar.gz';
 
 // ========== Shared State ==========
 
@@ -79,12 +84,24 @@ app.whenReady().then(async () => {
 
     // 进程内起渲染器 + TTS 服务（取代旧的 Python serve.py）。窗口都从 127.0.0.1:13004
     // 加载，所以必须先把它拉起来再建窗口。失败也不阻塞——窗口那边有 loadFile 兜底。
+    const assetDir = path.join(app.getPath('userData'), 'assets');
     try {
         const cacheDir = path.join(app.getPath('userData'), '.tts-cache');
-        ctx.rendererServer = await createServer({ appDir: basePath, cacheDir, port: 13004,
+        ctx.rendererServer = await createServer({ appDir: basePath, cacheDir, assetDir, port: 13004,
             log: (...a) => console.log(...a) });
     } catch (e) {
         console.error('[server] failed to start:', e.message);
+    }
+
+    // 首次运行下载模型包（打包后 renderer/ 里没有模型）。放在建窗口之前，等它就位再显示宠物。
+    try {
+        const how = await ensureModels({
+            rendererModelsDir: path.join(basePath, 'renderer', 'models'),
+            assetDir, url: MODELS_URL, log: (...a) => console.log(...a),
+        });
+        console.log('[models]', how);
+    } catch (e) {
+        console.error('[models] fetch failed (宠物会先空着，可在设置里重试):', e.message);
     }
 
     ctx.ttsService = new TTSService();

@@ -88,12 +88,44 @@ async function edgeVoices() {
   } catch { return []; }
 }
 
-function createServer({ appDir, cacheDir, port = 13004, log = () => {} }) {
+// Windows 内置 SAPI（System.Speech）—— Windows 版的「say」：能直接合成中文 wav，
+// 不需要 afconvert。文本/音色/输出路径走环境变量传进 PowerShell，避免引号注入。
+const WIN_LIST_PS1 = `Add-Type -AssemblyName System.Speech
+$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo } | Where-Object { $_.Culture.Name -like 'zh*' } | ForEach-Object { $_.Name }
+$s.Dispose()`;
+const WIN_SAY_PS1 = `Add-Type -AssemblyName System.Speech
+$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+try { if ($env:TTS_VOICE) { $s.SelectVoice($env:TTS_VOICE) } } catch {}
+$s.SetOutputToWaveFile($env:TTS_OUT)
+$s.Speak([System.IO.File]::ReadAllText($env:TTS_TXT, [System.Text.Encoding]::UTF8))
+$s.Dispose()`;
+
+async function winVoices() {
+  if (process.platform !== 'win32') return [];
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cicypet-v-'));
+  const ps = path.join(tmp, 'list.ps1');
+  try {
+    fs.writeFileSync(ps, WIN_LIST_PS1);
+    const out = (await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps])).toString('utf8');
+    return out.split('\n').map((l) => l.trim()).filter(Boolean)
+      .map((name) => ({ engine: 'say', id: name, name: name.replace(/^Microsoft\s+/, '').replace(/\s+Desktop$/, '') }));
+  } catch { return []; }
+  finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
+// 平台内置 TTS：mac 用 say，win 用 SAPI，其余暂无。前端里这一档都叫 engine="say"。
+async function systemVoices() {
+  if (process.platform === 'win32') return winVoices();
+  return sayVoices();
+}
+
+function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {} }) {
   const rendererDir = path.join(appDir, 'renderer');
   let voicesCache = null;
 
   async function allVoices() {                // 懒加载：edge 列表要联网，慢起来十几秒
-    if (!voicesCache) voicesCache = [...await edgeVoices(), ...await sayVoices()];
+    if (!voicesCache) voicesCache = [...await edgeVoices(), ...await systemVoices()];
     return voicesCache;
   }
 
@@ -110,9 +142,18 @@ function createServer({ appDir, cacheDir, port = 13004, log = () => {} }) {
     const wav = path.join(tmp, 'o.wav');
     try {
       if (engine === 'edge') {
+        // edge 需要 python3 + afconvert；mac 上默认可用，win/linux 上多半没有（前端会
+        // 自动回落到 say）。前端口型用 buf.sampleRate 自适应，所以采样率不必强行归一。
         const mp3 = path.join(tmp, 'o.mp3');
         await run('python3', ['-m', 'edge_tts', '--voice', voice, '--text', text, '--write-media', mp3], { env: NO_PROXY_ENV });
         await run('afconvert', ['-f', 'WAVE', '-d', 'LEI16@22050', '-c', '1', mp3, wav]);
+      } else if (process.platform === 'win32') {
+        // Windows 内置 SAPI → 直接写 wav（PCM），无需 afconvert
+        const ps = path.join(tmp, 'say.ps1'), txt = path.join(tmp, 'in.txt');
+        fs.writeFileSync(ps, WIN_SAY_PS1);
+        fs.writeFileSync(txt, text, 'utf8');
+        await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps],
+          { env: { ...process.env, TTS_VOICE: voice || '', TTS_OUT: wav, TTS_TXT: txt } });
       } else {
         const aiff = path.join(tmp, 'o.aiff');
         await run('say', ['-v', voice, '-o', aiff, text]);
@@ -128,14 +169,21 @@ function createServer({ appDir, cacheDir, port = 13004, log = () => {} }) {
   }
 
   // path → 磁盘文件；/app/* 映射到仓库根，其余映射到 renderer/。带目录穿越防护。
+  const guard = (base, rel) => {
+    const t = path.resolve(base, rel);
+    return (t === base || t.startsWith(base + path.sep)) ? t : null;   // 防越界
+  };
   function resolveFile(urlPath) {
     const clean = decodeURIComponent(urlPath.split('?')[0]);
-    let base, rel;
-    if (clean.startsWith('/app/')) { base = appDir; rel = clean.slice(5); }
-    else { base = rendererDir; rel = clean.replace(/^\/+/, '') || 'settings.html'; }
-    const target = path.resolve(base, rel);
-    if (target !== base && !target.startsWith(base + path.sep)) return null;  // 越界
-    return target;
+    if (clean.startsWith('/app/')) return guard(appDir, clean.slice(5));
+    const rel = clean.replace(/^\/+/, '') || 'settings.html';
+    // 模型资产优先从 assetDir（首次运行下载到 userData）取；打包后 renderer/ 里没有模型，
+    // 这时全靠 assetDir。dev 源码树里带 models，assetDir 为空 → 自动回落 renderer/。
+    if (assetDir && (rel === 'models.json' || rel.startsWith('models/'))) {
+      const a = guard(assetDir, rel);
+      if (a && fs.existsSync(a)) return a;
+    }
+    return guard(rendererDir, rel);
   }
 
   const server = http.createServer(async (req, res) => {

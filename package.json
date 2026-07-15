@@ -1,6 +1,6 @@
 {
   "name": "cicy-pet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CiCy Pet — an AI-powered Live2D desktop companion that watches your screen and talks back",
   "author": {
     "name": "cicybot",
@@ -42,7 +42,9 @@
     "protocols": [
       {
         "name": "CiCy Pet URL",
-        "schemes": ["cicy-pet"]
+        "schemes": [
+          "cicy-pet"
+        ]
       }
     ],
     "directories": {
@@ -65,18 +67,26 @@
     ],
     "mac": {
       "icon": "build/icon.png",
-      "target": ["dmg", "pkg", "zip"],
+      "target": [
+        "dmg",
+        "pkg",
+        "zip"
+      ],
       "category": "public.app-category.entertainment",
       "identity": null,
       "hardenedRuntime": false
     },
     "win": {
       "icon": "assets/app-icon.ico",
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "linux": {
       "icon": "build/icon.png",
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Utility",
       "maintainer": "cicybot <support@cicy-ai.com>"
     },
