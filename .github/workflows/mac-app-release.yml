@@ -22,7 +22,41 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install --no-audit
-      - name: Build & publish (dmg + zip)
-        run: npx electron-builder --mac --publish always
+
+      - name: Build (dmg + pkg + zip)
+        run: npx electron-builder --mac --publish never
+
+      - name: Read version
+        id: meta
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DMG + PKG to Aliyun OSS (versioned + latest pointer)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_AK: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_SK: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          VER: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OSS_AK:-}" ] || [ -z "${OSS_SK:-}" ]; then echo "::warning::OSS creds missing — skip"; exit 0; fi
+          curl -sL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutilmac64 -o ossutil && chmod +x ossutil
+          ./ossutil config -e oss-cn-shanghai.aliyuncs.com -i "$OSS_AK" -k "$OSS_SK"
+          BASE="oss://cicy-1372193042-cn/releases"
+          HOST="https://cicy-1372193042-cn.oss-cn-shanghai.aliyuncs.com/releases"
+          for EXT in dmg pkg; do
+            APP="$(ls dist/*."$EXT" 2>/dev/null | head -1 || true)"
+            [ -n "$APP" ] || { echo "::warning::no .$EXT built"; continue; }
+            ./ossutil cp "$APP" "$BASE/$(basename "$APP")" -f --acl public-read
+            ./ossutil cp "$APP" "$BASE/cicy-pet-mac-latest.$EXT" -f --acl public-read
+            echo "OSS: $HOST/$(basename "$APP")"
+          done
+          # 版本指针最后写：确保所有安装包都传完了
+          echo "$VER" > mac-latest-version.txt
+          ./ossutil cp mac-latest-version.txt "$BASE/cicy-pet-mac-latest-version.txt" -f --acl public-read
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            dist/*.dmg
+            dist/*.pkg

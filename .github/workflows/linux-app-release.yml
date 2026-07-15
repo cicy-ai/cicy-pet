@@ -20,7 +20,37 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install --no-audit
-      - name: Build & publish (AppImage)
-        run: npx electron-builder --linux --publish always
+
+      - name: Build (AppImage)
+        run: npx electron-builder --linux --publish never
+
+      - name: Read version
+        id: meta
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload AppImage to Aliyun OSS (versioned + latest pointer)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_AK: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_SK: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          VER: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OSS_AK:-}" ] || [ -z "${OSS_SK:-}" ]; then echo "::warning::OSS creds missing — skip"; exit 0; fi
+          curl -sL https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil64 -o ossutil && chmod +x ossutil
+          test -s ossutil && head -c4 ossutil | grep -q ELF || { echo "ossutil download bad"; exit 1; }
+          ./ossutil config -e oss-cn-shanghai.aliyuncs.com -i "$OSS_AK" -k "$OSS_SK"
+          BASE="oss://cicy-1372193042-cn/releases"
+          HOST="https://cicy-1372193042-cn.oss-cn-shanghai.aliyuncs.com/releases"
+          APP="$(ls dist/*.AppImage 2>/dev/null | head -1 || true)"
+          [ -n "$APP" ] || { echo "::error::no AppImage built"; exit 1; }
+          ./ossutil cp "$APP" "$BASE/$(basename "$APP")" -f --acl public-read
+          ./ossutil cp "$APP" "$BASE/cicy-pet-linux-latest.AppImage" -f --acl public-read
+          echo "$VER" > linux-latest-version.txt
+          ./ossutil cp linux-latest-version.txt "$BASE/cicy-pet-linux-latest-version.txt" -f --acl public-read
+          echo "OSS: $HOST/$(basename "$APP")"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.AppImage

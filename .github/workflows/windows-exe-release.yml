@@ -20,7 +20,39 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm install --no-audit
-      - name: Build & publish (nsis)
-        run: npx electron-builder --win --publish always
+
+      - name: Build (nsis exe)
+        run: npx electron-builder --win --publish never
+
+      - name: Read version
+        id: meta
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload EXE to Aliyun OSS (versioned + latest pointer)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_AK: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_SK: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          VER: ${{ steps.meta.outputs.version }}
+        shell: pwsh
+        run: |
+          if (-not $env:OSS_AK -or -not $env:OSS_SK) { Write-Warning "OSS creds missing — skip"; exit 0 }
+          Invoke-WebRequest -Uri "https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-windows-amd64.zip" -OutFile ossutil.zip
+          Expand-Archive -LiteralPath ossutil.zip -DestinationPath ossutil-dir -Force
+          $oss = "ossutil-dir\ossutil-v1.7.18-windows-amd64\ossutil.exe"
+          & $oss config -e oss-cn-shanghai.aliyuncs.com -i "$env:OSS_AK" -k "$env:OSS_SK"
+          $base = "oss://cicy-1372193042-cn/releases"
+          $host_ = "https://cicy-1372193042-cn.oss-cn-shanghai.aliyuncs.com/releases"
+          $exe = Get-ChildItem dist\*.exe | Where-Object { $_.Name -match 'Setup|cicy-pet' } | Select-Object -First 1
+          if (-not $exe) { $exe = Get-ChildItem dist\*.exe | Select-Object -First 1 }
+          if (-not $exe) { Write-Error "no .exe built"; exit 1 }
+          & $oss cp "$($exe.FullName)" "$base/$($exe.Name)" -f --acl public-read
+          & $oss cp "$($exe.FullName)" "$base/cicy-pet-win-latest.exe" -f --acl public-read
+          "$env:VER" | Out-File -Encoding ascii -NoNewline win-latest-version.txt
+          & $oss cp "win-latest-version.txt" "$base/cicy-pet-win-latest-version.txt" -f --acl public-read
+          Write-Host "OSS: $host_/$($exe.Name)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win
+          path: dist/*.exe

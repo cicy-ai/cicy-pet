@@ -49,6 +49,7 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "artifactName": "cicy-pet-${version}-${arch}.${ext}",
     "files": [
       "main.js",
       "preload.js",
@@ -64,7 +65,7 @@
     ],
     "mac": {
       "icon": "build/icon.png",
-      "target": ["dmg", "zip"],
+      "target": ["dmg", "pkg", "zip"],
       "category": "public.app-category.entertainment",
       "identity": null,
       "hardenedRuntime": false
