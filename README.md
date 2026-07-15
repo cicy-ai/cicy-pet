@@ -32,11 +32,17 @@ npm run build:win     # nsis
 npm run build:linux   # AppImage
 ```
 
-产物在 `dist/`。CI 发布 workflow 在 `.github/workflows/`（发到 GitHub Release +
-npm，和 cicy-desktop 一致）。
+产物在 `.github/workflows/` 里由 CI 构建，自动上传到 Aliyun OSS（DMG/PKG/EXE/AppImage，
+带版本号 + `latest` 指针 + `version.txt`）。
 
-> ⚠️ **模型不随发布分发。** Live2D 授权 §4.1.1 禁止再分发模型文件，`renderer/models/`
-> 已被 git 忽略。公开的 Release/npm 产物**不得**包含模型；本地自用可自行放入。详见 [NOTICE](./NOTICE)。
+> ⚠️ **模型不随安装包分发。** Live2D 授权 §4.1.1 禁止再分发模型文件，`renderer/models/`
+> 已被 git 忽略，安装包里也不含模型。**装上后首次启动，app 会从 OSS 下载模型包
+> （`cicy-pet-models.tar.gz`）到 `userData/assets` 再渲染**（见 `src/main/model-fetcher.js`）。
+> 模型包由 `scripts/publish-models.sh` 从有模型的机器上传（CI 干净 checkout 没有模型）。
+> 详见 [NOTICE](./NOTICE)。
+
+TTS 跨平台：macOS 用 `say`（离线）/ edge 神经音色；**Windows 用内置 SAPI**（`System.Speech`）；
+都带磁盘缓存和口型同步。
 
 ## 结构
 
