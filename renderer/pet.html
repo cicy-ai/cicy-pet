@@ -166,7 +166,30 @@
     let baseScale = 1, basePos = { x: 0, y: 0 };
     const move = { name: null, t0: 0, dur: 0 };
 
+    // 过冲回弹缓动：飞入时冲过头再弹回定住，制造「吓一跳」的惊人感
+    const easeOutBack = (t) => { const c1 = 2.2, c3 = c1 + 1; return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2; };
+    const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
     const MOVES = {
+      // 入场特效：从右上角屏外嗖地斜冲进来，边转一圈边放大，冲过头再弹回定住。
+      flyin: {
+        label: "飞入", dur: 950,
+        tf: (p) => {
+          const eb = easeOutBack(p);      // 位置：过冲回弹
+          const eo = easeOutCubic(p);     // 缩放
+          const punch = Math.sin(Math.PI * p) * 0.13;   // 中途略微「冲向镜头」鼓一下
+          // 距离按窗口尺寸走：从右上角刚出屏处冲进来（窗口小，别飞太远否则大半程看不见）
+          const W = window.innerWidth, H = window.innerHeight;
+          return {
+            dx: (1 - eb) * W * 0.6,       // 右侧刚出屏处飞入
+            dy: (1 - eb) * -H * 0.42,     // 上方
+            sx: 0.14 + eo * 0.86 + punch, // 从 14% 放大到 100%，中途过冲
+            sy: 0.14 + eo * 0.86 + punch,
+            rot: (1 - eo) * 6.5,          // 边飞边转约一圈，落定归零
+          };
+        },
+        param: (p, put) => { put("headZ", (1 - p) * 0.5); put("bodyZ", (1 - p) * 0.3); },
+      },
       spin: {
         label: "转圈", dur: 1400,
         tf: (p) => ({
@@ -371,7 +394,11 @@
 
     window.addEventListener("resize", fit);
 
-    loadModel(cfg.model).then(() => bus.postMessage({ type: "ready" }));
+    loadModel(cfg.model).then(() => {
+      bus.postMessage({ type: "ready" });
+      // ?entrance=1 → 一加载就自动飞入（拍视频时开着它，打开=Mao 冲进来）
+      if (params.get("entrance")) setTimeout(() => playMove("flyin"), 350);
+    });
 
     // 设置页发来的指令
     bus.addEventListener("message", async (e) => {
@@ -611,7 +638,7 @@
     }
 
     // 外部驱动用：pet.speak("…") / pet.motion()
-    window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, get model() { return model; } };
+    window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => playMove("flyin"), get model() { return model; } };
   </script>
 </body>
 
