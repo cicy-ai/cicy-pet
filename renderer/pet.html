@@ -189,6 +189,7 @@
           };
         },
         param: (p, put) => { put("headZ", (1 - p) * 0.5); put("bodyZ", (1 - p) * 0.3); },
+        sfx: flyinSfx,
       },
       spin: {
         label: "转圈", dur: 1400,
@@ -264,7 +265,46 @@
       move.name = name;
       move.dur = MOVES[name].dur;
       move.t0 = performance.now();
+      if (MOVES[name].sfx) { try { MOVES[name].sfx(); } catch {} }
       bus.postMessage({ type: "moveState", name, label: MOVES[name].label });
+    }
+
+    // 飞入音效：WebAudio 现场合成，不依赖素材文件（也就没有素材版权问题）。
+    // 「嗖——」= 白噪声过带通滤波做频率扫掠；「啵♪」= 正弦音高快速下坠，掐在落地回弹那一刻。
+    function flyinSfx() {
+      audioCtx = audioCtx || new AudioContext();
+      audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+
+      const len = Math.floor(audioCtx.sampleRate * 0.8);
+      const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buf;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = "bandpass"; bp.Q.value = 1.2;
+      bp.frequency.setValueAtTime(300, t0);
+      bp.frequency.exponentialRampToValueAtTime(2600, t0 + 0.45);
+      bp.frequency.exponentialRampToValueAtTime(700, t0 + 0.8);
+      const ng = audioCtx.createGain();
+      ng.gain.setValueAtTime(0.0001, t0);
+      ng.gain.exponentialRampToValueAtTime(0.5, t0 + 0.28);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8);
+      noise.connect(bp).connect(ng).connect(out);
+      noise.start(t0); noise.stop(t0 + 0.85);
+
+      const tl = t0 + 0.62;   // 落地时刻 ≈ dur 950ms 里 easeOutBack 收住的位置
+      const osc = audioCtx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(560, tl);
+      osc.frequency.exponentialRampToValueAtTime(170, tl + 0.16);
+      const og = audioCtx.createGain();
+      og.gain.setValueAtTime(0.0001, tl);
+      og.gain.exponentialRampToValueAtTime(0.4, tl + 0.02);
+      og.gain.exponentialRampToValueAtTime(0.0001, tl + 0.22);
+      osc.connect(og).connect(out);
+      osc.start(tl); osc.stop(tl + 0.25);
     }
 
     // transform 动画每帧重算（参数动画走 beforeModelUpdate，见 loadModel）
