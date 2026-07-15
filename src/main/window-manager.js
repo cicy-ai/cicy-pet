@@ -83,7 +83,8 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
             // 渲染交给 live2d-standalone 的 pet.html（本地服务 :13004）——它自带
             // 可用的模型、口型和 TTS。preload 照常注入，pet.html 里依旧能用
             // electronAPI 拖窗、弹右键菜单。服务没起来时兜底直接读文件。
-            const petUrl = process.env.PET_URL || 'http://127.0.0.1:13004/pet.html';
+            // entrance=1：每次启动 Mao 都从屏幕外飞进来落到桌面
+            const petUrl = process.env.PET_URL || 'http://127.0.0.1:13004/pet.html?entrance=1';
             ctx.petWindow.loadURL(petUrl).catch((e) => {
                 console.error('[pet] loadURL failed, falling back:', e.message);
                 ctx.petWindow.loadFile(deps.path.join(deps.basePath, 'renderer', 'pet.html'));
