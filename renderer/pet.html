@@ -225,6 +225,12 @@
         },
         sfx: superflySfx,
       },
+      // 被甩飞时的翻滚（跟着窗口一起飞出屏幕）
+      tumble: {
+        label: "翻滚", dur: 900,
+        tf: (p) => ({ dx: 0, dy: 0, sx: 1, sy: 1, rot: p * 12 }),
+        param: (p, put) => { put("headZ", 0.8); },
+      },
       spin: {
         label: "转圈", dur: 1400,
         tf: (p) => ({
@@ -415,6 +421,11 @@
         return "ready";
       },
       async next() {
+        if (maoGone) {           // 被甩飞后按一下 = 叫回来（螺旋入场，不消耗剧本台词）
+          maoGone = false;
+          await windowFlight("哼！刚才是谁把人家甩出去的！");
+          return "back";
+        }
         const s = SCRIPT[scriptIdx];
         if (!s) return "end";
         scriptIdx++;
@@ -717,27 +728,95 @@
     // getCursorPosition / getWindowBounds / setWindowPosition 自己实现：
     // 按下时记住「光标 - 窗口左上角」的偏移，移动时保持这个偏移。
     let dragging = false, offX = 0, offY = 0;
+    let trail = [];   // 拖动轨迹（判定「甩出去」用的速度采样）
 
     window.addEventListener("mousedown", async (e) => {
       if (e.button !== 0 || !api) return;
       const [cur, b] = await Promise.all([api.getCursorPosition(), api.getWindowBounds()]);
       offX = cur.x - b.x;
       offY = cur.y - b.y;
+      trail = [];
       dragging = true;
     });
 
-    window.addEventListener("mouseup", () => (dragging = false));
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+      // 甩出判定：取最近 ~120ms 的轨迹算速度，够快就顺着方向飞出屏幕
+      const now = performance.now();
+      const seg = trail.filter((s) => now - s.t < 120);
+      if (seg.length >= 2) {
+        const a = seg[0], z = seg[seg.length - 1], dt = (z.t - a.t) / 1000;
+        if (dt > 0) {
+          const vx = (z.x - a.x) / dt, vy = (z.y - a.y) / dt;
+          if (Math.hypot(vx, vy) > 1300) flingOut(vx, vy);
+        }
+      }
+      trail = [];
+    });
 
     // 用 rAF 拉，而不是监听 mousemove —— 鼠标一旦跑出窗口（拖快了就会），
     // 渲染进程就收不到 mousemove 了，窗口会「掉队」。轮询光标位置没这个问题。
     (function pump() {
       if (dragging && api) {
         api.getCursorPosition().then((cur) => {
-          if (dragging) api.setWindowPosition(Math.round(cur.x - offX), Math.round(cur.y - offY));
+          if (!dragging) return;
+          api.setWindowPosition(Math.round(cur.x - offX), Math.round(cur.y - offY));
+          trail.push({ t: performance.now(), x: cur.x, y: cur.y });
+          if (trail.length > 12) trail.shift();
         });
       }
       requestAnimationFrame(pump);
     })();
+
+    // 甩出屏幕：惯性延续松手时的速度，Mao 边惨叫边翻滚着飞出去。
+    // 想叫回来按 Option+M（下一次会走螺旋入场，不消耗剧本台词）。
+    let maoGone = false;
+    async function flingOut(vx, vy) {
+      if (!api) return;
+      const b = await api.getWindowBounds();
+      const sw = (window.screen && window.screen.width) || 1680;
+      const sh = (window.screen && window.screen.height) || 1050;
+      const speed = Math.hypot(vx, vy), k = Math.min(2.2, Math.max(1, 2000 / speed));
+      vx *= k; vy *= k;                         // 保底出场速度，甩轻了也送到底
+      playMove("tumble");
+      flingSfx();
+      try { speak("哇啊啊啊——！"); } catch {}
+      let x = b.x, y = b.y;
+      const t0 = performance.now(); let last = t0;
+      await new Promise((done) => {
+        (function step() {
+          const now = performance.now(), dt = (now - last) / 1000; last = now;
+          x += vx * dt; y += vy * dt;
+          api.setWindowPosition(Math.round(x), Math.round(y));
+          const out = x > sw + 30 || x + b.width < -30 || y > sh + 30 || y + b.height < -30;
+          if (out || now - t0 > 1200) { done(); return; }
+          requestAnimationFrame(step);
+        })();
+      });
+      maoGone = true;
+    }
+
+    // 甩飞时的呼啸声：短促的噪声嗖 + 音高快速下坠的「哇」
+    function flingSfx() {
+      audioCtx = audioCtx || new AudioContext();
+      audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      const len = Math.floor(audioCtx.sampleRate * 0.5);
+      const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buf;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = "bandpass"; bp.Q.value = 1;
+      bp.frequency.setValueAtTime(2400, t0);
+      bp.frequency.exponentialRampToValueAtTime(500, t0 + 0.5);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.55, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+      noise.connect(bp).connect(g).connect(out);
+      noise.start(t0); noise.stop(t0 + 0.55);
+    }
 
     // 右键菜单交给宿主（退出/设置都在里面）
     window.addEventListener("contextmenu", (e) => {
@@ -832,7 +911,8 @@
     }
 
     // 外部驱动用：pet.speak("…") / pet.motion()
-    window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => windowFlight(), get model() { return model; } };
+    window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => windowFlight(),
+                   flingOut: () => flingOut(2300, -450), get model() { return model; } };
   </script>
 </body>
 

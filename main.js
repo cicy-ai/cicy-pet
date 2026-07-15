@@ -125,6 +125,8 @@ app.whenReady().then(async () => {
     };
     globalShortcut.register('Alt+R', () => petEval('window.petScript && window.petScript.reset()'));
     globalShortcut.register('Alt+M', () => petEval('window.petScript && window.petScript.next()'));
+    // Alt+X = 一键甩飞（拍「手一滑她就没了」的镜头，用触控板甩不好拍时的保险）
+    globalShortcut.register('Alt+X', () => petEval('window.pet && window.pet.flingOut && window.pet.flingOut()'));
 
     // Initialize TTS after windows are created (non-blocking)
     setImmediate(async () => {
