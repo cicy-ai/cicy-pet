@@ -830,8 +830,8 @@
     // ---------- 说话 ----------（状态在文件开头声明，见那里的注释）
 
     // 读音订正表：文字照原样写，送 TTS 前替换成正确读音。
-    // CiCy 要读「赛赛」(saysay)，直接给 TTS 会被拼成字母。
-    const PRONOUNCE = [[/CiCy/gi, "赛赛"]];
+    // CiCy 要读 seisei（英文 say say），直接给 TTS 会被拼成字母。
+    const PRONOUNCE = [[/CiCy/gi, "say say"]];
 
     async function speak(text) {
       stopSpeaking();
