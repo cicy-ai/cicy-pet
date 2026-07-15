@@ -63,13 +63,21 @@
       voice: params.get("voice") || saved.voice || "zh-CN-XiaoxiaoNeural",
     };
 
+    // 性能：桌宠是「一直在跑」的 WebGL，默认 60fps + Retina 2x 像素（=4 倍工作量）+
+    // 透明置顶窗口的合成开销，弱机器会明显卡。两刀砍一半：
+    //   ① resolution 锁 1x（不按 Retina 2x 渲，肉眼几乎无差）
+    //   ② 帧率封到 30fps（Live2D 呼吸/眨眼/口型 30 帧完全够）
+    // 可用 URL 参数覆盖：?fps=60 或 ?dpr=2（想更清晰、机器够强时）。
     const app = new PIXI.Application({
       view: $("canvas"),
       resizeTo: window,
       backgroundAlpha: 0,        // 全透明，才能贴在桌面上
       autoStart: true,
-      antialias: true,
+      antialias: false,          // 关抗锯齿，省一截 GPU
+      resolution: Math.min(+params.get("dpr") || 1, window.devicePixelRatio || 1),
+      autoDensity: true,
     });
+    app.ticker.maxFPS = Math.max(15, +params.get("fps") || 30);
 
     let model = null;
     const lip = { active: false, value: 0 };
