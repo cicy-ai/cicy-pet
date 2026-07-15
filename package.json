@@ -1,0 +1,89 @@
+{
+  "name": "cicy-pet",
+  "version": "0.1.0",
+  "description": "CiCy Pet — an AI-powered Live2D desktop companion that watches your screen and talks back",
+  "author": {
+    "name": "cicybot",
+    "email": "support@cicy-ai.com"
+  },
+  "license": "MIT",
+  "main": "main.js",
+  "bin": {
+    "cicy-pet": "./bin/cicy-pet"
+  },
+  "scripts": {
+    "start": "node launch.js",
+    "dev": "node launch.js --dev",
+    "test": "node --test tests/test-core.js tests/test-enhance.js tests/test-config-manager.js tests/test-crypto-utils.js tests/test-validators.js",
+    "build": "electron-builder --publish never",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "build:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "active-win": "^8.2.1",
+    "electron-log": "^5.4.3",
+    "koffi": "^2.15.1"
+  },
+  "devDependencies": {
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3"
+  },
+  "overrides": {
+    "node-gyp": "^13.0.0",
+    "@mapbox/node-pre-gyp": "^2.0.3",
+    "tar": "^7.5.16"
+  },
+  "build": {
+    "appId": "com.cicy.pet",
+    "productName": "CiCy Pet",
+    "npmRebuild": false,
+    "protocols": [
+      {
+        "name": "CiCy Pet URL",
+        "schemes": ["cicy-pet"]
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "launch.js",
+      "pet-chat-bubble.html",
+      "config.json",
+      "src/**/*",
+      "assets/**/*",
+      "renderer/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/koffi/**"
+    ],
+    "mac": {
+      "icon": "build/icon.png",
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.entertainment",
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "win": {
+      "icon": "assets/app-icon.ico",
+      "target": ["nsis"]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": ["AppImage"],
+      "category": "Utility",
+      "maintainer": "cicybot <support@cicy-ai.com>"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "cicy-ai",
+      "repo": "cicy-pet",
+      "releaseType": "release"
+    }
+  }
+}

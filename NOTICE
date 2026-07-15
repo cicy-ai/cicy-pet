@@ -1,0 +1,26 @@
+CiCy Pet
+Copyright (c) 2026 cicybot <support@cicy-ai.com>
+
+Based on Live2DPet (https://github.com/x380kkm/Live2DPet) by x380kkm,
+whose desktop-pet Electron shell and AI-companion "brain" (screen perception →
+VLM situation extraction → LLM dialogue → emotion-driven expressions) this
+project builds upon.
+
+────────────────────────────────────────────────────────────────────────
+Live2D models — IMPORTANT
+────────────────────────────────────────────────────────────────────────
+This repository does NOT redistribute any Live2D model. Live2D's Free Material
+License §4.1.1 (and equivalent terms for community models) prohibits
+redistributing the model files. The `renderer/models/` directory is
+git-ignored and MUST NOT be included in any public release artifact
+(GitHub Release, npm tarball, etc.).
+
+For personal / small-scale use you may place model files in `renderer/models/`
+on your own machine. Some bundled sample characters are Live2D "Collaboration
+Characters" (e.g. Natori) that forbid commercial use, and some community models
+are of unknown provenance — do not use those for streaming or published video.
+The settings UI shows a license badge on every character; check it before
+publishing anything.
+
+Live2D Cubism Core and the Cubism Web Framework are © Live2D Inc. and are used
+under the Live2D Proprietary Software License / Free Material License.

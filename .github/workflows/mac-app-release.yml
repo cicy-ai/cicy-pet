@@ -1,0 +1,28 @@
+name: Build macOS App Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # NOTE: renderer/models/ is git-ignored (Live2D §4.1.1 forbids redistribution),
+      # so a clean CI checkout has no models — the published artifact is model-free
+      # by construction, which is the license-correct outcome. Do not add models here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm install --no-audit
+      - name: Build & publish (dmg + zip)
+        run: npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+/**
+ * cicy-pet launcher — spawns the Electron app.
+ * Resolves a locally-installed electron; falls back to a global one so the
+ * ~200MB binary can be shared across tools instead of copied per install.
+ */
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+const ROOT = path.join(__dirname, '..');
+
+function resolveElectron() {
+  // 1) local dependency
+  try { return require(path.join(ROOT, 'node_modules', 'electron')); } catch {}
+  // 2) global install (npm i -g electron)
+  try {
+    const { execSync } = require('child_process');
+    const prefix = execSync('npm prefix -g', { encoding: 'utf8' }).trim();
+    const bin = process.platform === 'win32'
+      ? path.join(prefix, 'node_modules', 'electron', 'dist', 'electron.exe')
+      : path.join(prefix, 'lib', 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+    if (fs.existsSync(bin)) return bin;
+  } catch {}
+  return null;
+}
+
+const electron = resolveElectron();
+if (!electron) {
+  console.error('未找到 Electron。先装依赖：npm install（或 npm i -g electron）。');
+  process.exit(1);
+}
+
+const child = spawn(electron, [ROOT, ...process.argv.slice(2)], { stdio: 'inherit' });
+child.on('close', (code) => process.exit(code || 0));

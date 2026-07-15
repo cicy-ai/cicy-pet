@@ -1,0 +1,23 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  npm-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The npm tarball follows package.json "files" (main.js, src, renderer, …).
+      # renderer/models/ is git-ignored, so the published package ships model-free
+      # (Live2D §4.1.1). Users add models locally on first run.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install --no-audit
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

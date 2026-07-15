@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>桌宠设置</title>
+  <style>
+    :root {
+      --win: #ececee; --group: #ffffff; --group-2: #f6f6f8;
+      --text: #1d1d1f; --text-2: #6e6e73; --text-3: #9a9aa0;
+      --sep: #e4e4e8; --field: #ffffff; --field-line: #d8d8dd;
+      --accent: #0a76ff; --accent-soft: rgba(10,118,255,.12);
+      --green: #2fb84f; --amber: #eb9500; --red: #e8402e; --track: #e6e6ea;
+      --tile-shadow: 0 .5px 0 rgba(0,0,0,.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --win: #1c1c1e; --group: #2c2c2e; --group-2: #333335;
+        --text: #f5f5f7; --text-2: #a3a3ab; --text-3: #77777e;
+        --sep: #3a3a3d; --field: #1f1f22; --field-line: #48484c;
+        --accent: #3b93ff; --accent-soft: rgba(59,147,255,.20);
+        --green: #34d158; --amber: #ffca38; --red: #ff5c4d; --track: #48484c;
+      }
+    }
+    :root[data-theme="light"] {
+      --win: #ececee; --group: #ffffff; --group-2: #f6f6f8;
+      --text: #1d1d1f; --text-2: #6e6e73; --text-3: #9a9aa0;
+      --sep: #e4e4e8; --field: #ffffff; --field-line: #d8d8dd;
+      --accent: #0a76ff; --accent-soft: rgba(10,118,255,.12);
+      --green: #2fb84f; --amber: #eb9500; --red: #e8402e; --track: #e6e6ea;
+    }
+    :root[data-theme="dark"] {
+      --win: #1c1c1e; --group: #2c2c2e; --group-2: #333335;
+      --text: #f5f5f7; --text-2: #a3a3ab; --text-3: #77777e;
+      --sep: #3a3a3d; --field: #1f1f22; --field-line: #48484c;
+      --accent: #3b93ff; --accent-soft: rgba(59,147,255,.20);
+      --green: #34d158; --amber: #ffca38; --red: #ff5c4d; --track: #48484c;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--win); color: var(--text);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+
+    .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 20px; }
+
+    /* 顶部工具条：只放主题切换（窗口标题交给系统原生标题栏） */
+    .toolbar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+    .themeBtn { background: var(--group-2); border: .5px solid var(--sep); color: var(--text-2);
+      cursor: pointer; font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; }
+    .themeBtn:hover { color: var(--text); }
+
+    /* hero */
+    .hero { background: var(--group); border-radius: 12px; padding: 16px; display: grid;
+      grid-template-columns: auto 1fr; gap: 14px; align-items: center; box-shadow: var(--tile-shadow); }
+    .avatar { width: 64px; height: 64px; border-radius: 15px; display: grid; place-items: center;
+      box-shadow: inset 0 0 0 .5px rgba(0,0,0,.06); overflow: hidden; }
+    .avatar svg { width: 50px; height: 50px; display: block; }
+    .who { min-width: 0; }
+    .who .nm { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+    .who .meta { color: var(--text-2); font-size: 12.5px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+      padding: 2px 9px 2px 7px; border-radius: 999px; margin-top: 8px; }
+    .pill i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+    .pill.stopped { background: color-mix(in srgb, var(--text-3) 20%, transparent); color: var(--text-2); }
+    .pill.stopped i { background: var(--text-3); }
+    .pill.ready { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber); }
+    .pill.ready i { background: var(--amber); }
+    .pill.running { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green); }
+    .pill.running i { background: var(--green); animation: blink 1.6s ease-in-out infinite; }
+    @keyframes blink { 50% { opacity: .35; } }
+    @media (prefers-reduced-motion: reduce) { .pill.running i { animation: none; } }
+
+    .cta-wrap { grid-column: 1 / -1; margin-top: 2px; }
+    .cta { width: 100%; border: 0; border-radius: 11px; padding: 12px; font: inherit; font-size: 15px; font-weight: 600;
+      cursor: pointer; color: #fff; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .15s, transform .08s; }
+    .cta:active { transform: scale(.988); }
+    .cta.stop { background: var(--red); }
+    .cta.locked { background: color-mix(in srgb, var(--text-3) 32%, transparent); color: var(--text-2); }
+    .cta svg { width: 16px; height: 16px; }
+    .cta-hint { font-size: 12px; color: var(--text-2); text-align: center; margin-top: 7px; }
+    .cta-hint a { color: var(--accent); cursor: pointer; font-weight: 500; }
+
+    .quick { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
+    .quick button { flex: 1; background: var(--group-2); border: .5px solid var(--sep); border-radius: 9px;
+      padding: 8px 4px; font: inherit; font-size: 12px; color: var(--text); cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .quick button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--group-2)); }
+    .quick button svg { width: 17px; height: 17px; color: var(--accent); }
+
+    /* grouped list */
+    .group-label { font-size: 12px; font-weight: 600; color: var(--text-3); letter-spacing: .04em;
+      text-transform: uppercase; margin: 22px 8px 7px; }
+    .group { background: var(--group); border-radius: 12px; box-shadow: var(--tile-shadow); overflow: hidden; }
+    .acc { display: flex; align-items: center; gap: 12px; padding: 11px 14px; cursor: pointer; position: relative; }
+    .acc + .acc::before, .panel + .acc::before { content: ""; position: absolute; top: -.5px; left: 50px; right: 0; height: .5px; background: var(--sep); }
+    .acc:hover { background: color-mix(in srgb, var(--accent) 5%, var(--group)); }
+    .ic { width: 28px; height: 28px; border-radius: 7px; flex: none; display: grid; place-items: center; color: #fff; }
+    .ic svg { width: 16px; height: 16px; }
+    .ic.brain { background: linear-gradient(160deg,#8a5cff,#6a3df0); }
+    .ic.voice { background: linear-gradient(160deg,#ff8a4c,#ff5f6d); }
+    .ic.emo   { background: linear-gradient(160deg,#ff5fa2,#ff3d77); }
+    .ic.char  { background: linear-gradient(160deg,#39c2ff,#2f7bff); }
+    .ic.win   { background: linear-gradient(160deg,#5ac8a8,#2fa5b8); }
+    .acc .lbl { flex: 1; min-width: 0; }
+    .acc .lbl b { font-weight: 500; font-size: 14.5px; display: block; }
+    .acc .lbl span { font-size: 12px; color: var(--text-2); }
+    .acc .val { color: var(--text-2); font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chev { color: var(--text-3); width: 8px; height: 13px; flex: none; transition: transform .22s ease; }
+    .acc.open .chev { transform: rotate(90deg); }
+
+    .panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .26s ease; background: var(--group); }
+    .panel.open { grid-template-rows: 1fr; }
+    .panel > .inner { overflow: hidden; }
+    .pad { padding: 4px 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+    .pad::before { content: ""; display: block; height: .5px; background: var(--sep); margin: 0 -14px 2px; }
+
+    /* controls */
+    .row { display: flex; flex-direction: column; gap: 5px; }
+    label { color: var(--text-2); font-size: 12px; font-weight: 500; }
+    select, input[type=text], input[type=password], textarea {
+      width: 100%; font: inherit; font-size: 13.5px; color: var(--text);
+      background: var(--field); border: .5px solid var(--field-line); border-radius: 8px; padding: 8px 10px; outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    textarea { resize: vertical; line-height: 1.5; }
+    .sub { font-size: 11.5px; color: var(--text-3); }
+    .slider-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); }
+    .slider-head b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+    input[type=range] { -webkit-appearance: none; width: 100%; height: 5px; border-radius: 999px; background: var(--track); outline: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 19px; height: 19px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3), 0 0 0 .5px rgba(0,0,0,.06); cursor: pointer; }
+
+    .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    button.b { padding: 7px 13px; background: var(--group-2); color: var(--accent); border: .5px solid var(--sep);
+      border-radius: 8px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+    button.b:hover { background: color-mix(in srgb, var(--accent) 8%, var(--group-2)); }
+    button.b.neutral { color: var(--text); }
+    button.b.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.b:disabled { opacity: .45; cursor: default; }
+
+    /* segmented (audioMode / tokens) — JS toggles .primary as the selected one */
+    .segbtns { display: flex; background: var(--track); border-radius: 9px; padding: 2px; gap: 2px; }
+    .segbtns button { flex: 1; border: 0; background: transparent; font: inherit; font-size: 12.5px; color: var(--text);
+      padding: 6px 4px; border-radius: 7px; cursor: pointer; transition: background .15s; }
+    .segbtns button.primary { background: var(--group); box-shadow: 0 1px 3px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.04); font-weight: 600; }
+
+    /* switch checkboxes */
+    .inline { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .inline .lbl2 b { font-weight: 500; font-size: 13.5px; display: block; }
+    .inline .lbl2 span { font-size: 11.5px; color: var(--text-2); }
+    input.swch { appearance: none; -webkit-appearance: none; width: 42px; height: 25px; border-radius: 999px;
+      background: var(--track); position: relative; cursor: pointer; flex: none; margin: 0; transition: background .2s; }
+    input.swch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.28); transition: transform .2s; }
+    input.swch:checked { background: var(--green); }
+    input.swch:checked::after { transform: translateX(17px); }
+
+    /* character grid */
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .card { background: var(--field); border: 1px solid var(--field-line); border-radius: 10px; padding: 10px 6px 8px;
+      text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+    .card:hover { border-color: var(--accent); }
+    .card.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+    .card.off { opacity: .4; cursor: not-allowed; }
+    .card .cav { width: 40px; height: 40px; border-radius: 10px; margin: 0 auto 6px; display: grid; place-items: center; overflow: hidden; }
+    .card .cav svg { width: 30px; height: 30px; }
+    .card .n { font-size: 12.5px; font-weight: 600; }
+    .card .k { color: var(--text-3); font-size: 10.5px; margin-top: 1px; }
+    .lic { display: inline-block; margin-top: 4px; font-size: 10px; padding: 1px 6px; border-radius: 999px; line-height: 15px; }
+    .lic-ok { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green); }
+    .lic-nc { background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+    .lic-unknown { background: color-mix(in srgb, var(--amber) 22%, transparent); color: var(--amber); }
+    .gt { grid-column: 1 / -1; font-size: 11px; font-weight: 600; color: var(--text-3); letter-spacing: .04em; margin: 4px 0 -2px; }
+
+    /* notices */
+    .warn { padding: 10px 11px; border-radius: 9px; border: .5px solid color-mix(in srgb, var(--red) 40%, transparent);
+      background: color-mix(in srgb, var(--red) 12%, var(--group)); color: color-mix(in srgb, var(--red) 82%, var(--text));
+      font-size: 12px; line-height: 1.5; }
+    .warn.amber { border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+      background: color-mix(in srgb, var(--amber) 12%, var(--group)); color: color-mix(in srgb, var(--amber) 80%, var(--text)); }
+    .warn.hide { display: none; }
+    .note { display: flex; gap: 9px; background: color-mix(in srgb, var(--amber) 12%, var(--group));
+      border: .5px solid color-mix(in srgb, var(--amber) 40%, transparent); border-radius: 9px; padding: 10px 11px;
+      font-size: 12px; line-height: 1.5; color: color-mix(in srgb, var(--amber) 78%, var(--text)); }
+    .note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--amber); }
+    .emo-item { display: flex; align-items: center; gap: 8px; padding: 6px 9px; background: var(--field);
+      border: .5px solid var(--field-line); border-radius: 8px; margin-bottom: 5px; }
+    .emo-item .en { flex: 1; font-size: 13px; }
+    .emo-item .du { width: 56px; text-align: center; }
+    .emo-item input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+
+    #status { padding: 9px 16px; border-top: .5px solid var(--sep); color: var(--text-2);
+      font-size: 11.5px; min-height: 34px; flex: none; }
+    .hint { color: var(--text-2); font-size: 11.5px; line-height: 1.5; }
+  </style>
+</head>
+
+<body>
+  <!-- Live2DPet 原作者的「大脑」。这 15 个脚本原本由它的 index.html 加载，
+       我们换掉设置界面时把它拔掉了 —— 这里同源（/app/）装回来。
+       它们是普通全局脚本，不是模块，顺序有依赖，照抄 index.html 的顺序。 -->
+  <script src="/app/src/i18n/locales.js"></script>
+  <script src="/app/src/core/ai-chat.js"></script>
+  <script src="/app/src/core/prompt-builder.js"></script>
+  <script src="/app/src/core/emotion-system.js"></script>
+  <script src="/app/src/core/audio-state-machine.js"></script>
+  <script src="/app/src/core/message-session.js"></script>
+  <script src="/app/src/core/enhance/context-pool.js"></script>
+  <script src="/app/src/core/enhance/enhance-utils.js"></script>
+  <script src="/app/src/core/enhance/memory-tracker.js"></script>
+  <script src="/app/src/core/enhance/search-service.js"></script>
+  <script src="/app/src/core/enhance/knowledge-store.js"></script>
+  <script src="/app/src/core/enhance/vlm-extractor.js"></script>
+  <script src="/app/src/core/enhance/knowledge-acquisition.js"></script>
+  <script src="/app/src/core/enhance/enhancement-orchestrator.js"></script>
+  <script src="/app/src/core/desktop-pet-system.js"></script>
+
+  <div class="scroll">
+    <div class="toolbar">
+      <button class="themeBtn" id="themeBtn" title="切换明暗">◑ 主题</button>
+    </div>
+
+    <!-- HERO -->
+    <div class="hero">
+      <div class="avatar" id="heroAv"></div>
+      <div class="who">
+        <div class="nm" id="heroName">桌宠</div>
+        <div class="meta" id="heroMeta">加载中…</div>
+        <div class="pill stopped" id="statPill"><i></i><span id="statTxt">未配置</span></div>
+      </div>
+
+      <div class="cta-wrap">
+        <button class="cta locked" id="cta">
+          <svg id="ctaIcon" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>
+          <span id="ctaTxt">启动大脑</span>
+        </button>
+        <div class="cta-hint" id="ctaHint"></div>
+      </div>
+
+      <div class="quick">
+        <button data-goto="char"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>换角色</button>
+        <button data-goto="emo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>情绪动作</button>
+        <button data-goto="voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>换音色</button>
+      </div>
+    </div>
+
+    <!-- 让它活起来 -->
+    <div class="group-label">让它活起来</div>
+    <div class="group">
+
+      <!-- AI 大脑 -->
+      <div class="acc" data-acc="brain">
+        <div class="ic brain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 1 5 3 3 0 0 0 6 1V4a1 1 0 0 0-2-1zM15 3a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-1 5 3 3 0 0 1-6 1"/></svg></div>
+        <div class="lbl"><b>AI 大脑</b><span>截屏感知 · 主动陪聊</span></div>
+        <div class="val" data-val="brain">未配置</div>
+        <svg class="chev" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l6 5.5L1 12"/></svg>
+      </div>
+      <div class="panel"><div class="inner"><div class="pad">
+        <div id="brainErr" class="warn hide"></div>
+        <div class="row"><label for="baseURL">API 地址（OpenAI 兼容）</label>
+          <input type="text" id="baseURL" placeholder="https://openrouter.ai/api/v1" /></div>
+        <div class="row"><label for="apiKey">API Key</label>
+          <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
+          <span class="sub">填了才能启动。密钥只发给你配置的这个地址。</span></div>
+        <div class="row"><label for="modelName">模型（建议带视觉，才能看懂你在干嘛）</label>
+          <input type="text" id="modelName" placeholder="x-ai/grok-4-fast" /></div>
+        <div class="btns"><button class="b" id="testAI">测试连接</button>
+          <span class="hint" id="testHint" style="align-self:center"></span></div>
+
+        <div class="row"><div class="slider-head"><span>看屏频率</span><b><span id="intVal">30</span> 秒</b></div>
+          <input type="range" id="interval" min="10" max="300" step="5" />
+          <span class="sub">多久截一次屏、想一次话。</span></div>
+        <div class="row"><div class="slider-head"><span>说话间隔</span><b><span id="gapVal">5</span> 秒</b></div>
+          <input type="range" id="chatGap" min="0" max="60" step="1" />
+          <span class="sub">两句话之间至少隔多久。</span></div>
+
+        <div class="row"><label>回复长度</label>
+          <div class="segbtns" id="tokens">
+            <button data-x="0.5">短</button><button data-x="1" class="primary">标准</button>
+            <button data-x="1.5">长</button><button data-x="2">很长</button>
+          </div><span class="hint" id="tokenHint"></span></div>
+
+        <div class="inline"><div class="lbl2"><b>视觉记忆</b><span>定时挑代表性关键帧，它就记得住你刚在干嘛（费 token）</span></div>
+          <input type="checkbox" class="swch" id="enhance" /></div>
+
+        <div class="row"><label for="prompt">人格 Prompt</label>
+          <textarea id="prompt" rows="4" placeholder="加载中…"></textarea></div>
+
+        <div class="row"><label>被戳时的反应（喂给大脑，让它知道你在跟它互动）</label>
+          <input type="text" id="hitClick" placeholder="点它一下 · 留空用默认：戳了戳我" />
+          <input type="text" id="hitDrag" placeholder="拖着它走 · 留空用默认：拖着我到处跑" style="margin-top:6px" /></div>
+
+        <div class="btns"><button class="b primary" id="saveAI">保存</button></div>
+
+        <div class="note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          <div><b>隐私</b> —— 开启后它会定时截取整个屏幕并发给你配置的 API。你机器上开着一堆终端和代码，开之前想清楚。截图不落盘，但会出网。</div></div>
+      </div></div></div>
+
+      <!-- 语音 -->
+      <div class="acc" data-acc="voice">
+        <div class="ic voice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12"/></svg></div>
+        <div class="lbl"><b>语音</b><span>中文 TTS · 口型同步</span></div>
+        <div class="val" data-val="voice"></div>
+        <svg class="chev" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l6 5.5L1 12"/></svg>
+      </div>
+      <div class="panel"><div class="inner"><div class="pad">
+        <div class="row"><label>发声方式（大脑说话时用哪种）</label>
+          <div class="segbtns" id="audioMode">
+            <button data-m="tts" class="primary">TTS 合成语音</button>
+            <button data-m="silent">静音（只弹气泡）</button>
+          </div>
+          <span class="sub">静音下大脑照常思考、照常弹字幕气泡，只是不发声、不动嘴。</span></div>
+        <div class="row"><label for="engine">引擎</label>
+          <select id="engine">
+            <option value="edge">edge — 微软神经音色（自然，需联网）</option>
+            <option value="say">say — macOS 自带（离线，机械）</option>
+          </select><span class="hint" id="engineHint"></span></div>
+        <div class="row"><label for="voice">音色</label><select id="voice"></select></div>
+        <div class="row"><label for="text">试听 / 让它说</label>
+          <textarea id="text" rows="2">今天也辛苦了，记得喝水。</textarea></div>
+        <div class="btns"><button class="b primary" id="speak">▶ 说一句</button><button class="b neutral" id="stop">停</button></div>
+        <span class="sub">同一句会缓存，第二次起秒出。首次合成 edge 约 2–3 秒、say 约 5 秒。</span>
+      </div></div></div>
+
+      <!-- 动作与情绪 -->
+      <div class="acc" data-acc="emo">
+        <div class="ic emo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></div>
+        <div class="lbl"><b>动作与情绪</b><span>跳舞 · 转圈 · 表情驱动</span></div>
+        <div class="val" data-val="emo"></div>
+        <svg class="chev" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l6 5.5L1 12"/></svg>
+      </div>
+      <div class="panel"><div class="inner"><div class="pad">
+        <div class="btns">
+          <button class="b" id="motion">自带动作</button>
+          <button class="b" id="expr">换个表情</button>
+          <button class="b primary" id="dance">跳舞</button>
+        </div>
+        <div class="row"><div class="slider-head"><span>舞速</span><b><span id="bpmVal">110</span> BPM</b></div>
+          <input type="range" id="bpm" min="60" max="180" step="2" /></div>
+        <div class="row"><label>动作</label><div id="moves" class="btns"></div></div>
+        <span class="hint" id="danceHint">模型自带的动作只有 Idle 和 TapBody，没有舞蹈 —— 这支舞是按拍子直接驱动身体和头部参数「编」出来的。能扭到什么程度取决于模型有哪些参数（Hiyori 有手臂，Wanko 连耳朵都能动）。</span>
+
+        <div class="row"><div class="slider-head"><span>多久来一次表情</span><b><span id="freqVal">60</span> 秒</b></div>
+          <input type="range" id="emoFreq" min="30" max="300" step="10" />
+          <span class="sub">大脑运行时情绪值会慢慢攒（鼠标放它身上时攒得快），攒满就让 AI 挑一个情绪演出来。</span></div>
+        <div class="inline"><div class="lbl2"><b>表情和动作可同时</b></div>
+          <input type="checkbox" class="swch" id="simul" /></div>
+
+        <div class="row"><label>表情（当前模型真实拥有 · 勾选的才会被 AI 选用）</label>
+          <div id="exprList" class="hint">等宠物上报…</div></div>
+        <div class="row"><label>动作情绪（每个模型都能演）</label>
+          <div id="motionList" class="hint">等宠物上报…</div></div>
+        <div class="btns"><button class="b primary" id="saveEmo">保存情绪设置</button><button class="b" id="tryEmo">随机演一个</button></div>
+        <span class="hint" id="emoState"></span>
+      </div></div></div>
+    </div>
+
+    <!-- 外观与角色 -->
+    <div class="group-label">外观与角色</div>
+    <div class="group">
+
+      <!-- 角色 -->
+      <div class="acc open" data-acc="char">
+        <div class="ic char"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></div>
+        <div class="lbl"><b>角色</b><span>14 个形象 · 直播前看授权</span></div>
+        <div class="val" data-val="char"></div>
+        <svg class="chev" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l6 5.5L1 12"/></svg>
+      </div>
+      <div class="panel open"><div class="inner"><div class="pad">
+        <div id="licWarn" class="warn hide"></div>
+        <div id="grid" class="grid"></div>
+      </div></div></div>
+
+      <!-- 窗口 -->
+      <div class="acc" data-acc="win">
+        <div class="ic win"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg></div>
+        <div class="lbl"><b>窗口</b><span>大小 · 位置 · 隐藏</span></div>
+        <div class="val" data-val="win">340 px</div>
+        <svg class="chev" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l6 5.5L1 12"/></svg>
+      </div>
+      <div class="panel"><div class="inner"><div class="pad">
+        <div class="row"><div class="slider-head"><span>大小</span><b><span id="sizeVal">340</span> px</b></div>
+          <input type="range" id="size" min="180" max="700" step="10" /></div>
+        <div class="btns"><button class="b" id="reset">回到右下角</button><button class="b neutral" id="hide">隐藏宠物</button></div>
+        <span class="sub">宠物窗口可以直接用鼠标拖动；右键弹菜单。</span>
+      </div></div></div>
+    </div>
+  </div>
+
+  <div id="status">就绪</div>
+
+  <script>
+    const api = window.electronAPI || null;      // Live2DPet 的 preload
+    const bus = new BroadcastChannel("live2d-pet"); // 和 pet.html 同源 → 直接通
+    const $ = (id) => document.getElementById(id);
+    const status = (s) => ($("status").textContent = s);
+    const setVal = (k, v) => { const el = document.querySelector(`[data-val="${k}"]`); if (el) el.textContent = v; };
+
+    const CFG_KEY = "pet_config";
+    const cfg = Object.assign(
+      { model: "models/Hiyori/Hiyori.model3.json", engine: "edge", voice: "zh-CN-XiaoxiaoNeural", size: 340 },
+      JSON.parse(localStorage.getItem(CFG_KEY) || "{}")
+    );
+
+    function save() {
+      localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+      bus.postMessage({ type: "config", cfg });   // 宠物窗口实时跟着变
+    }
+
+    // ---------- 折叠面板 ----------
+    const accs = {};
+    document.querySelectorAll(".acc").forEach((acc) => {
+      const id = acc.dataset.acc;
+      const panel = acc.nextElementSibling;
+      accs[id] = { acc, panel };
+      acc.addEventListener("click", () => {
+        const open = acc.classList.toggle("open");
+        panel.classList.toggle("open", open);
+      });
+    });
+    function openPanel(id, focusId) {
+      const a = accs[id]; if (!a) return;
+      if (!a.acc.classList.contains("open")) { a.acc.classList.add("open"); a.panel.classList.add("open"); }
+      a.acc.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (focusId) setTimeout(() => $(focusId)?.focus(), 320);
+    }
+    document.querySelectorAll("[data-goto]").forEach((q) =>
+      q.addEventListener("click", () => openPanel(q.dataset.goto)));
+
+    // ---------- 主题切换 ----------
+    $("themeBtn").addEventListener("click", () => {
+      const root = document.documentElement;
+      const cur = root.getAttribute("data-theme")
+        || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      root.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+    });
+
+    // ---------- 头像（按名字生成，不依赖外部图片） ----------
+    function hueOf(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+    function petSVG(hue) {
+      const hair = `hsl(${hue} 32% 44%)`, skin = `hsl(${(hue + 25) % 360} 70% 90%)`, cheek = `hsl(${(hue + 15) % 360} 82% 76%)`;
+      return `<svg viewBox="0 0 100 100" aria-hidden="true">
+        <path d="M22 44c0-19 12-30 28-30s28 11 28 30c0 6-2 12-2 12l4 10-8-3c-6 6-14 9-22 9s-16-3-22-9l-8 3 4-10s-2-6-2-12z" fill="${hair}"/>
+        <ellipse cx="50" cy="52" rx="23" ry="24" fill="${skin}"/>
+        <path d="M27 40c6-14 40-14 46 0 0 0-6-8-23-8s-23 8-23 8z" fill="${hair}"/>
+        <circle cx="40" cy="54" r="4.4" fill="#3a2a2a"/><circle cx="60" cy="54" r="4.4" fill="#3a2a2a"/>
+        <circle cx="41.4" cy="52.6" r="1.5" fill="#fff"/><circle cx="61.4" cy="52.6" r="1.5" fill="#fff"/>
+        <ellipse cx="34" cy="62" rx="4" ry="2.6" fill="${cheek}" opacity=".7"/><ellipse cx="66" cy="62" rx="4" ry="2.6" fill="${cheek}" opacity=".7"/>
+        <path d="M45 63q5 4 10 0" stroke="#c9776a" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
+    }
+    function setHero(m) {
+      const hue = hueOf(m.name);
+      $("heroName").textContent = m.name;
+      $("heroMeta").textContent = `${m.kind} · Cubism ${m.cubism} · ${m.licenseLabel}`;
+      $("heroAv").style.background = `linear-gradient(155deg, hsl(${(hue + 15) % 360} 82% 82%), hsl(${(hue + 210) % 360} 70% 85%))`;
+      $("heroAv").innerHTML = petSVG(hue);
+      setVal("char", m.name);
+    }
+
+    // ---------- 角色 ----------
+    let models = [];
+    async function loadModels() {
+      models = await (await fetch("models.json")).json();
+      const grid = $("grid");
+      grid.innerHTML = "";
+      const cur = models.find((m) => m.url === cfg.model);
+      if (cur) setHero(cur);
+      for (const kind of ["女生", "男生", "宠物", "其他"]) {
+        const items = models.filter((m) => m.kind === kind);
+        if (!items.length) continue;
+        const t = document.createElement("div");
+        t.className = "gt"; t.textContent = kind;
+        grid.appendChild(t);
+        for (const m of items) {
+          const c = document.createElement("div");
+          c.className = "card" + (m.url === cfg.model ? " on" : "") + (m.supported ? "" : " off");
+          const hue = hueOf(m.name);
+          c.innerHTML = `<div class="cav" style="background:linear-gradient(155deg,hsl(${(hue+15)%360} 82% 82%),hsl(${(hue+210)%360} 70% 85%))">${petSVG(hue)}</div>`
+            + `<div class="n">${m.name}</div>`
+            + `<div class="k">${m.supported ? "Cubism " + m.cubism : "不支持"}</div>`
+            + `<div class="lic lic-${m.license}">${m.licenseLabel}</div>`;
+          c.title = m.licenseNote;
+          if (m.supported) {
+            c.addEventListener("click", () => {
+              cfg.model = m.url; save();
+              document.querySelectorAll(".card").forEach((x) => x.classList.remove("on"));
+              c.classList.add("on");
+              setHero(m);
+              status("已切换到 " + m.name);
+              showLicense(m);
+            });
+          } else {
+            c.title = `moc3 v${m.moc}，渲染库只支持到 v5\n\n${m.licenseNote}`;
+          }
+          grid.appendChild(c);
+        }
+      }
+    }
+
+    // 选到不能对外发布的角色时，当场把话说清楚 —— 别等到视频发出去才知道
+    function showLicense(m) {
+      const w = $("licWarn");
+      if (m.publishable) { w.classList.add("hide"); return; }
+      w.classList.remove("hide");
+      w.classList.toggle("amber", m.license === "unknown");
+      w.innerHTML = m.license === "nc"
+        ? `<b>${m.name} 禁止商用</b> —— 它是 Live2D 的「合作角色」，条款明确不得用于商业目的。直播出镜、录播发布都算商用。自己在桌面上玩没问题。`
+        : `<b>${m.name} 来源不明</b> —— 不在 Live2D 的授权名单里，来自社区模型包，很可能是第三方甚至游戏角色。自己玩没问题，<b>公开发布有侵权风险</b>。`;
+    }
+
+    $("motion").addEventListener("click", () => bus.postMessage({ type: "motion" }));
+    $("expr").addEventListener("click", () => bus.postMessage({ type: "expression" }));
+
+    // ---------- 跳舞 ----------
+    cfg.bpm = cfg.bpm || 110;
+    let dancing = false;
+    $("bpm").value = cfg.bpm;
+    $("bpmVal").textContent = cfg.bpm;
+
+    $("dance").addEventListener("click", () => {
+      dancing = !dancing;
+      bus.postMessage({ type: "dance", on: dancing, bpm: cfg.bpm });
+      $("dance").textContent = dancing ? "停止跳舞" : "跳舞";
+      $("dance").classList.toggle("primary", !dancing);
+      setVal("emo", dancing ? "跳舞中" : emoSummary());
+    });
+
+    $("bpm").addEventListener("input", (e) => {
+      cfg.bpm = +e.target.value;
+      $("bpmVal").textContent = cfg.bpm;
+      save();
+      if (dancing) bus.postMessage({ type: "dance", on: true, bpm: cfg.bpm });
+    });
+
+    // ---------- 语音 ----------
+    let voices = [];
+    async function loadVoices() {
+      voices = await (await fetch("/voices")).json();
+      $("engine").value = cfg.engine;
+      fillVoices();
+    }
+
+    function fillVoices() {
+      const sel = $("voice");
+      sel.innerHTML = "";
+      const list = voices.filter((v) => v.engine === cfg.engine);
+      for (const v of list) {
+        const o = document.createElement("option");
+        o.value = v.id; o.textContent = v.name;
+        sel.appendChild(o);
+      }
+      if (!list.some((v) => v.id === cfg.voice)) cfg.voice = list[0]?.id || "";
+      sel.value = cfg.voice;
+      $("engineHint").textContent = cfg.engine === "edge"
+        ? "神经音色，自然度高；要联网，首次合成 2–3 秒（网络差时更久）。"
+        : "完全离线，但音色机械；进程启动开销大，首次合成约 5 秒。";
+      setVal("voice", list.find((v) => v.id === cfg.voice)?.name || "");
+    }
+
+    $("engine").addEventListener("change", (e) => { cfg.engine = e.target.value; fillVoices(); save(); });
+    $("voice").addEventListener("change", (e) => {
+      cfg.voice = e.target.value; save();
+      setVal("voice", voices.find((v) => v.id === cfg.voice)?.name || "");
+    });
+
+    $("speak").addEventListener("click", () => {
+      const t = $("text").value.trim();
+      if (!t) return;
+      status("合成中…（首次可能几秒，之后走缓存）");
+      bus.postMessage({ type: "speak", text: t });
+    });
+    $("stop").addEventListener("click", () => bus.postMessage({ type: "stop" }));
+
+    // 宠物那边把结果回报过来
+    const ROLE_CN = {
+      headX: "头·左右", headY: "头·俯仰", headZ: "头·倾斜",
+      bodyX: "身·左右", bodyY: "身·起伏", bodyZ: "身·倾斜",
+      armL: "左臂", armR: "右臂", eyeX: "眼球", earL: "左耳", earR: "右耳", hair: "头发",
+    };
+
+    bus.addEventListener("message", (e) => {
+      const m = e.data || {};
+      if (m.type === "spoke") status(m.ok ? `说完了（${m.cache === "hit" ? "缓存命中" : "首次合成"}，${m.ms}ms）` : "失败: " + m.error);
+      if (m.type === "ready") status("宠物已就绪");
+      if (m.type === "moves") {
+        const box = $("moves");
+        box.innerHTML = "";
+        for (const mv of m.list) {
+          const b = document.createElement("button");
+          b.className = "b"; b.textContent = mv.label;
+          b.addEventListener("click", () => bus.postMessage({ type: "move", name: mv.id }));
+          box.appendChild(b);
+        }
+      }
+      if (m.type === "moveState") status(m.name ? "正在" + m.label : "动作结束");
+      if (m.type === "danceState") {
+        const parts = (m.roles || []).map((r) => ROLE_CN[r] || r).join("、");
+        status(m.on ? `跳舞中 · ${m.bpm} BPM · 能动：${parts || "（无可用参数）"}`
+                    : `已停 · 这个模型能动：${parts || "（无）"}`);
+      }
+    });
+
+    // ---------- 窗口 ----------
+    $("size").value = cfg.size;
+    $("sizeVal").textContent = cfg.size;
+    setVal("win", cfg.size + " px");
+    $("size").addEventListener("input", (e) => {
+      cfg.size = +e.target.value;
+      $("sizeVal").textContent = cfg.size;
+      setVal("win", cfg.size + " px");
+      api?.setWindowSize?.(cfg.size, Math.round(cfg.size * 1.25));
+      save();
+    });
+
+    $("reset").addEventListener("click", async () => {
+      if (!api) return;
+      const b = await api.getWindowBounds();
+      api.setWindowPosition(1680 - b.width - 40, 1050 - b.height - 60);
+      status("已挪回右下角");
+    });
+    $("hide").addEventListener("click", () => { api?.closePetWindow?.(); status("宠物已隐藏（托盘菜单可再显示）"); });
+
+    // ---------- AI 大脑 ----------
+    // Live2DPet 原作者做的那套：截屏 → VLM 压成情境 → LLM 生成陪伴对话 → 情绪驱动表情。
+    // 只做两处外科手术，不改他们一行代码：① prepareAudio 从 VOICEVOX（日语）改成我们的中文
+    // TTS；② 气泡走 electronAPI.showPetChat（白拿）。启动/停止提到 hero 的主按钮上。
+    let petSystem = null;
+    let brainRunning = false;
+
+    function brainErr(msg) {
+      const w = $("brainErr");
+      if (!msg) { w.classList.add("hide"); return; }
+      w.classList.remove("hide"); w.textContent = msg;
+      openPanel("brain");
+    }
+    const hasKey = () => $("apiKey").value.trim().length > 0;
+
+    function refreshBrainUI() {
+      const cta = $("cta"), txt = $("ctaTxt"), hint = $("ctaHint"), pill = $("statPill"), pt = $("statTxt"), icon = $("ctaIcon");
+      cta.classList.remove("locked", "stop");
+      if (brainRunning) {
+        cta.classList.add("stop"); txt.textContent = "停止";
+        icon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>';
+        const iv = petSystem ? Math.round(petSystem.detectionIntervalMs / 1000) : 30;
+        hint.textContent = `正在看屏 · 每 ${iv} 秒想一次`;
+        pill.className = "pill running"; pt.textContent = "运行中";
+      } else if (hasKey()) {
+        txt.textContent = "启动大脑";
+        icon.innerHTML = '<polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/>';
+        hint.textContent = "一切就绪，点上面让它动起来";
+        pill.className = "pill ready"; pt.textContent = "已就绪";
+      } else {
+        cta.classList.add("locked"); txt.textContent = "启动大脑";
+        icon.innerHTML = '<polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/>';
+        hint.innerHTML = '需先在 <a id="gotoKey">AI 大脑 → 填 API Key</a>，它才能看屏、说话';
+        $("gotoKey").addEventListener("click", () => openPanel("brain", "apiKey"));
+        pill.className = "pill stopped"; pt.textContent = "未配置";
+      }
+      setVal("brain", hasKey() ? "已配置" : "未配置");
+    }
+
+    $("cta").addEventListener("click", async () => {
+      if (brainRunning) return stopBrain();
+      if (!hasKey()) return openPanel("brain", "apiKey");
+      startBrain();
+    });
+
+    async function initBrain() {
+      if (typeof DesktopPetSystem === "undefined") {
+        brainErr("大脑脚本没加载到 —— 检查 serve.py 的 /app 挂载（PET_APP_DIR）。");
+        return;
+      }
+      try {
+        petSystem = new DesktopPetSystem();
+        await petSystem.init();
+
+        // 情绪系统输出经主进程 IPC 推给宠物窗口（照原作者 settings-ui.js 的接法）
+        const es = petSystem.emotionSystem;
+        es.onEmotionTriggered = (name) => api?.triggerExpression?.(name);
+        es.onEmotionReverted = () => api?.revertExpression?.();
+        es.onMotionTriggered = (group, index) => api?.triggerMotion?.(group, index);
+        api?.onPetHoverState?.((hovering) => es.setHoverState(!!hovering));
+
+        // ① 语音接管：不走 VOICEVOX（日语），改用我们的 TTS + 口型。
+        petSystem.prepareAudio = async (text) => {
+          if (cfg.audioMode === "silent") return null;   // 静音 → 非 TTS 路径（只弹气泡）
+          try {
+            const url = `/tts?text=${encodeURIComponent(text)}`
+              + `&engine=${encodeURIComponent(cfg.engine)}&voice=${encodeURIComponent(cfg.voice)}`;
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const buf = await res.arrayBuffer();
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const decoded = await ctx.decodeAudioData(buf.slice(0));
+            ctx.close();
+            return {
+              duration: decoded.duration * 1000,
+              play: () => { bus.postMessage({ type: "speak", text }); return Promise.resolve(); },
+            };
+          } catch (e) { console.error("[tts] prepareAudio failed", e); return null; }
+        };
+
+        const cfgFile = await window.electronAPI.loadConfig();
+        $("baseURL").value = cfgFile.baseURL || "";
+        $("apiKey").value = cfgFile.apiKey || "";
+        $("modelName").value = cfgFile.modelName || "";
+
+        const gap = cfgFile.chatGap != null ? parseInt(cfgFile.chatGap) : 5;
+        $("chatGap").value = gap; $("gapVal").textContent = gap;
+        petSystem.chatGapMs = gap * 1000;
+
+        const iv = Math.max(10, parseInt(cfgFile.interval) || 30);
+        $("interval").value = iv; $("intVal").textContent = iv;
+        petSystem.setInterval(iv * 1000);
+
+        setTokens(parseFloat(cfgFile.maxTokensMultiplier) || 1);
+        setAudioMode(cfgFile.audioMode || "tts");
+        $("enhance").checked = !!cfgFile.enhanceEnabled;
+
+        const freq = Math.max(30, parseInt(cfgFile.emotionFrequency) || 60);
+        $("emoFreq").value = freq; $("freqVal").textContent = freq;
+        es.expectedFrequencySeconds = freq; es._recalculateRates();
+        $("simul").checked = !!cfgFile.allowSimultaneous;
+        es.allowSimultaneous = !!cfgFile.allowSimultaneous;
+
+        const ha = cfgFile.hitActions || {};
+        $("hitClick").value = ha.click || "";
+        $("hitDrag").value = ha.drag || "";
+        applyHitActions();
+
+        const p = await window.electronAPI.loadPrompt();
+        $("prompt").value = (typeof p === "string" ? p : p?.prompt) || "";
+
+        brainErr("");
+        refreshBrainUI();
+        bus.postMessage({ type: "listMoves" });   // 催宠物报当前模型的表情/动作能力
+      } catch (e) {
+        brainErr("大脑初始化失败: " + (e.message || e));
+      }
+    }
+
+    $("apiKey").addEventListener("input", refreshBrainUI);
+    $("chatGap").addEventListener("input", (e) => { $("gapVal").textContent = e.target.value; });
+
+    $("saveAI").addEventListener("click", async () => {
+      try {
+        await window.electronAPI.saveConfig({
+          baseURL: $("baseURL").value.trim(),
+          apiKey: $("apiKey").value.trim(),
+          modelName: $("modelName").value.trim(),
+          interval: parseInt($("interval").value),
+          chatGap: parseInt($("chatGap").value),
+          maxTokensMultiplier: cfg.maxTokensMultiplier || 1,
+          audioMode: cfg.audioMode || "tts",
+          enhanceEnabled: $("enhance").checked,
+          hitActions: { click: $("hitClick").value.trim(), drag: $("hitDrag").value.trim() },
+        });
+        await window.electronAPI.savePrompt($("prompt").value);
+        if (petSystem) {
+          petSystem.chatGapMs = parseInt($("chatGap").value) * 1000;
+          petSystem.setInterval(parseInt($("interval").value) * 1000);
+          const c = petSystem.aiClient;
+          c.baseURL = $("baseURL").value.trim();
+          c.apiKey = $("apiKey").value.trim();
+          c.modelName = $("modelName").value.trim();
+          c.maxTokensMultiplier = cfg.maxTokensMultiplier || 1;
+          applyHitActions();
+          petSystem.systemPrompt = petSystem.promptBuilder.buildSystemPrompt();
+        }
+        status("已保存");
+        refreshBrainUI();
+      } catch (e) { brainErr("保存失败: " + (e.message || e)); }
+    });
+
+    async function startBrain() {
+      if (!petSystem) return brainErr("大脑还没就绪");
+      if (!hasKey()) return openPanel("brain", "apiKey");
+      try {
+        const c = petSystem.aiClient;
+        c.baseURL = $("baseURL").value.trim();
+        c.apiKey = $("apiKey").value.trim();
+        c.modelName = $("modelName").value.trim();
+        applyHitActions();
+        configureEmotion();   // 确保情绪项已配好（否则 emotionSystem.start 空转）
+        await petSystem.start();
+        brainRunning = true;
+        brainErr(""); refreshBrainUI();
+        status("大脑运行中 —— 它会定时看屏并主动说话");
+      } catch (e) { brainErr("启动失败: " + (e.message || e)); }
+    }
+
+    async function stopBrain() {
+      if (!petSystem) return;
+      await petSystem.stop();
+      brainRunning = false;
+      refreshBrainUI();
+      status("大脑已停止");
+    }
+
+    // 看屏频率 / 回复长度 / 发声方式 / 被戳反应 / 测试
+    $("interval").addEventListener("input", (e) => {
+      $("intVal").textContent = e.target.value;
+      if (petSystem) petSystem.setInterval(parseInt(e.target.value) * 1000);
+      if (brainRunning) refreshBrainUI();
+    });
+
+    function setTokens(x) {
+      cfg.maxTokensMultiplier = x;
+      document.querySelectorAll("#tokens button").forEach((b) =>
+        b.classList.toggle("primary", parseFloat(b.dataset.x) === x));
+      $("tokenHint").textContent = "约 " + Math.round(2048 * x) + " tokens 上限";
+      if (petSystem?.aiClient) petSystem.aiClient.maxTokensMultiplier = x;
+    }
+    document.querySelectorAll("#tokens button").forEach((b) =>
+      b.addEventListener("click", () => setTokens(parseFloat(b.dataset.x))));
+
+    function setAudioMode(m) {
+      cfg.audioMode = m;
+      document.querySelectorAll("#audioMode button").forEach((b) =>
+        b.classList.toggle("primary", b.dataset.m === m));
+      if (petSystem?.audioStateMachine) petSystem.audioStateMachine.setPreferredMode(m);
+    }
+    document.querySelectorAll("#audioMode button").forEach((b) =>
+      b.addEventListener("click", () => setAudioMode(b.dataset.m)));
+
+    function applyHitActions() {
+      if (!petSystem?.promptBuilder) return;
+      petSystem.promptBuilder.characterPrompt = petSystem.promptBuilder.characterPrompt || {};
+      petSystem.promptBuilder.characterPrompt.hitActions = {
+        click: $("hitClick").value.trim(),
+        drag: $("hitDrag").value.trim(),
+      };
+    }
+
+    $("testAI").addEventListener("click", async () => {
+      if (!petSystem) return;
+      const c = petSystem.aiClient;
+      c.baseURL = $("baseURL").value.trim();
+      c.apiKey = $("apiKey").value.trim();
+      c.modelName = $("modelName").value.trim();
+      if (!c.apiKey) { $("testHint").textContent = "先填 API Key"; return; }
+      $("testHint").textContent = "测试中…";
+      const r = await petSystem.aiClient.testConnection();
+      $("testHint").textContent = r.success
+        ? "✓ 通了：" + String(r.response || "").slice(0, 24)
+        : "✗ " + (r.error || "失败");
+    });
+
+    // ---------- 情绪 ----------
+    let caps = null;
+    const emoState = {}; // name -> {enabled, dur, type, group, index}
+
+    function emoSummary() {
+      const ex = Object.values(emoState).filter((s) => s.type === "expression").length;
+      const mo = Object.values(emoState).filter((s) => s.type === "motion").length;
+      return `${mo} 动作 · ${ex} 表情`;
+    }
+
+    function buildEmotionLists() {
+      const el = $("exprList"), ml = $("motionList");
+      el.innerHTML = ""; ml.innerHTML = "";
+      const exprs = caps?.expressions || [];
+      const moves = caps?.custom || [];
+      if (!exprs.length) el.innerHTML = '<span class="hint">这个模型没有表情，靠下面的动作演情绪。</span>';
+      for (const name of exprs) {
+        const st = emoState[name] || { enabled: true, dur: 5, type: "expression" };
+        emoState[name] = st;
+        el.appendChild(emoRow(name, st));
+      }
+      for (const mv of moves) {
+        const key = mv.label;
+        const st = emoState[key] || { enabled: true, dur: 3, type: "motion", group: mv.id, index: 0 };
+        st.group = mv.id; st.index = 0; st.type = "motion";
+        emoState[key] = st;
+        ml.appendChild(emoRow(key, st));
+      }
+      setVal("emo", dancing ? "跳舞中" : emoSummary());
+    }
+
+    function emoRow(label, st) {
+      const row = document.createElement("div");
+      row.className = "emo-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = st.enabled;
+      cb.addEventListener("change", () => { st.enabled = cb.checked; });
+      const nm = document.createElement("span");
+      nm.className = "en"; nm.textContent = label;
+      const du = document.createElement("input");
+      du.type = "text"; du.className = "du"; du.value = st.dur + "s"; du.title = "显示时长（秒）";
+      du.addEventListener("change", () => { const v = parseFloat(du.value); if (v > 0) st.dur = v; du.value = st.dur + "s"; });
+      row.append(cb, nm, du);
+      return row;
+    }
+
+    function configureEmotion() {
+      if (!petSystem?.emotionSystem) return;
+      const es = petSystem.emotionSystem;
+      const expressions = [], exprDur = {}, motions = [], motionDur = {}, enabled = [];
+      for (const [key, st] of Object.entries(emoState)) {
+        if (st.type === "expression") { expressions.push({ name: key, label: key }); exprDur[key] = Math.round(st.dur * 1000); }
+        else { motions.push({ name: key, group: st.group, index: st.index }); motionDur[key] = Math.round(st.dur * 1000); }
+        if (st.enabled) enabled.push(key);
+      }
+      es.configureExpressions(expressions, exprDur, 5000);
+      es.configureMotions(motions, motionDur, 3000);
+      es.setEnabledEmotions(enabled);
+    }
+
+    $("emoFreq").addEventListener("input", (e) => {
+      $("freqVal").textContent = e.target.value;
+      if (petSystem?.emotionSystem) {
+        petSystem.emotionSystem.expectedFrequencySeconds = Math.max(30, +e.target.value);
+        petSystem.emotionSystem._recalculateRates();
+      }
+    });
+    $("simul").addEventListener("change", (e) => {
+      if (petSystem?.emotionSystem) petSystem.emotionSystem.allowSimultaneous = e.target.checked;
+    });
+
+    $("saveEmo").addEventListener("click", async () => {
+      configureEmotion();
+      const enabled = Object.entries(emoState).filter(([, s]) => s.enabled).map(([k]) => k);
+      await window.electronAPI.saveConfig({
+        emotionFrequency: Math.max(30, +$("emoFreq").value),
+        allowSimultaneous: $("simul").checked,
+        enabledEmotions: enabled,
+      });
+      $("emoState").textContent = "已保存 · " + emoSummary();
+    });
+
+    $("tryEmo").addEventListener("click", () => {
+      if (!petSystem?.emotionSystem) return;
+      configureEmotion();
+      petSystem.emotionSystem.triggerAligned(2500);
+      $("emoState").textContent = "演一个试试…";
+    });
+
+    bus.addEventListener("message", (e) => {
+      if (e.data?.type === "caps") { caps = e.data; buildEmotionLists(); configureEmotion(); }
+    });
+
+    loadModels();
+    loadVoices();
+    initBrain();
+
+    // 宠物可能比设置页先起来，也可能后起来 —— 两边都要能对上
+    bus.addEventListener("message", (e) => { if (e.data?.type === "ready") bus.postMessage({ type: "listMoves" }); });
+    bus.postMessage({ type: "listMoves" });
+  </script>
+</body>
+
+</html>
