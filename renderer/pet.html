@@ -60,7 +60,10 @@
     const cfg = {
       model: params.get("model") || saved.model || "models/Hiyori/Hiyori.model3.json",
       engine: params.get("engine") || saved.engine || "edge",
-      voice: params.get("voice") || saved.voice || "zh-CN-XiaoxiaoNeural",
+      voice: params.get("voice") || saved.voice || "zh-CN-XiaoyiNeural",
+      // 调皮参数：晓伊 + 提速 8% + 提调 20Hz（用户 A/B 选的「二号」），只对 edge 生效
+      rate: params.get("rate") || saved.rate || "+8%",
+      pitch: params.get("pitch") || saved.pitch || "+20Hz",
     };
 
     // 性能：桌宠是「一直在跑」的 WebGL，默认 60fps + Retina 2x 像素（=4 倍工作量）+
@@ -404,7 +407,7 @@
     // 流程：藏起来 → 螺旋入场“哈喽” → 自我介绍 → 会什么 → 报今天天气。
     const SCRIPT = [
       { move: "entrance", text: "哈喽——！" },
-      { text: "我叫 Mao！住在你电脑里的小精灵哦～你天天敲键盘，吵得我睡不着，今天特地出来认识一下！" },
+      { text: "我叫 CiCy！住在你电脑里的小精灵哦～你天天敲键盘，吵得我睡不着，今天特地出来认识一下！" },
       { text: "我会的可多啦！会聊天、会卖萌、会陪你写代码，还会帮你数 bug——昨天你写了二十七个哦！" },
       { move: "spin", text: "查到啦！今天上海大晴天，现在三十二度，最高三十六度——热死喵了！建议你哪儿也别去，在家陪我吹空调！" },
     ];
@@ -778,6 +781,7 @@
       const sh = (window.screen && window.screen.height) || 1050;
       const speed = Math.hypot(vx, vy), k = Math.min(2.2, Math.max(1, 2000 / speed));
       vx *= k; vy *= k;                         // 保底出场速度，甩轻了也送到底
+      maoGone = true;   // 一开甩就立标记——飞行途中按「叫回」也要能生效
       playMove("tumble");
       flingSfx();
       try { speak("哇啊啊啊——！"); } catch {}
@@ -793,7 +797,6 @@
           requestAnimationFrame(step);
         })();
       });
-      maoGone = true;
     }
 
     // 甩飞时的呼啸声：短促的噪声嗖 + 音高快速下坠的「哇」
@@ -838,7 +841,9 @@
       try {
         const url = `/tts?text=${encodeURIComponent(text)}`
           + `&engine=${encodeURIComponent(cfg.engine)}`
-          + `&voice=${encodeURIComponent(cfg.voice)}`;
+          + `&voice=${encodeURIComponent(cfg.voice)}`
+          + `&rate=${encodeURIComponent(cfg.rate || "")}`
+          + `&pitch=${encodeURIComponent(cfg.pitch || "")}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(await res.text() || res.status);
         cache = res.headers.get("X-TTS-Cache") || "miss";

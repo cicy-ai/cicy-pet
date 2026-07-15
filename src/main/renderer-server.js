@@ -24,7 +24,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const DEFAULT_ENGINE = 'edge';
-const DEFAULT_VOICE = { say: 'Tingting', edge: 'zh-CN-XiaoxiaoNeural' };
+const DEFAULT_VOICE = { say: 'Tingting', edge: 'zh-CN-XiaoyiNeural' };
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -129,13 +129,13 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     return voicesCache;
   }
 
-  function cachePath(engine, voice, text) {
-    const key = crypto.createHash('sha1').update(`${engine}|${voice}|${text}`).digest('hex');
+  function cachePath(engine, voice, text, rate, pitch) {
+    const key = crypto.createHash('sha1').update(`${engine}|${voice}|${text}|${rate || ''}|${pitch || ''}`).digest('hex');
     return path.join(cacheDir, `${key}.wav`);
   }
 
-  async function synth(engine, voice, text) {
-    const out = cachePath(engine, voice, text);
+  async function synth(engine, voice, text, rate, pitch) {
+    const out = cachePath(engine, voice, text, rate, pitch);
     if (fs.existsSync(out)) return { wav: fs.readFileSync(out), hit: true };
     fs.mkdirSync(cacheDir, { recursive: true });
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cicypet-'));
@@ -144,8 +144,12 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
       if (engine === 'edge') {
         // edge 需要 python3 + afconvert；mac 上默认可用，win/linux 上多半没有（前端会
         // 自动回落到 say）。前端口型用 buf.sampleRate 自适应，所以采样率不必强行归一。
+        // rate/pitch：edge 支持 ±% / ±Hz（如 +8% / +20Hz），调皮感主要靠这两个。
         const mp3 = path.join(tmp, 'o.mp3');
-        await run('python3', ['-m', 'edge_tts', '--voice', voice, '--text', text, '--write-media', mp3], { env: NO_PROXY_ENV });
+        const extra = [];
+        if (rate) extra.push(`--rate=${rate}`);
+        if (pitch) extra.push(`--pitch=${pitch}`);
+        await run('python3', ['-m', 'edge_tts', '--voice', voice, ...extra, '--text', text, '--write-media', mp3], { env: NO_PROXY_ENV });
         await run('afconvert', ['-f', 'WAVE', '-d', 'LEI16@22050', '-c', '1', mp3, wav]);
       } else if (process.platform === 'win32') {
         // Windows 内置 SAPI → 直接写 wav（PCM），无需 afconvert
@@ -201,8 +205,11 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         const voice = u.searchParams.get('voice') || DEFAULT_VOICE[engine] || '';
         if (!text) { res.statusCode = 400; return res.end('text required'); }
         if (engine !== 'say' && engine !== 'edge') { res.statusCode = 400; return res.end('bad engine'); }
+        // rate/pitch 只对 edge 生效，格式 ±N% / ±NHz（防注入：只放行这两种形状）
+        const rate = /^[+-]\d{1,3}%$/.test(u.searchParams.get('rate') || '') ? u.searchParams.get('rate') : '';
+        const pitch = /^[+-]\d{1,3}Hz$/.test(u.searchParams.get('pitch') || '') ? u.searchParams.get('pitch') : '';
         try {
-          const { wav, hit } = await synth(engine, voice, text);
+          const { wav, hit } = await synth(engine, voice, text, rate, pitch);
           noStore({ 'Content-Type': 'audio/wav', 'Content-Length': wav.length, 'X-TTS-Cache': hit ? 'hit' : 'miss' });
           return res.end(wav);
         } catch (e) {
