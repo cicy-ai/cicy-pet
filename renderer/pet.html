@@ -59,12 +59,15 @@
     const saved = JSON.parse(localStorage.getItem("pet_config") || "{}");
     const cfg = {
       model: params.get("model") || saved.model || "models/Hiyori/Hiyori.model3.json",
-      engine: params.get("engine") || saved.engine || "edge",
-      voice: params.get("voice") || saved.voice || "zh-CN-XiaoyiNeural",
-      // 调皮参数：晓伊 + 提速 8% + 提调 20Hz（用户 A/B 选的「二号」），只对 edge 生效
+      // 默认豆包爽快思思（比 edge 自然、调皮）。旧配置里若留着 edge 引擎但音色是豆包的
+      // （*_uranus_bigtts）→ 引擎/音色错搭会静默失败，这里纠正成 doubao。
+      engine: params.get("engine") || saved.engine || "doubao",
+      voice: params.get("voice") || saved.voice || "zh_female_shuangkuaisisi_uranus_bigtts",
       rate: params.get("rate") || saved.rate || "+8%",
       pitch: params.get("pitch") || saved.pitch || "+20Hz",
     };
+    if (/_uranus_bigtts$/.test(cfg.voice) && cfg.engine !== "doubao") cfg.engine = "doubao";
+    if (cfg.engine === "edge" && !/^zh-CN-/.test(cfg.voice)) cfg.engine = "doubao";
 
     // 记住的形象大小：设置页把 size 存进 pet_config，这里启动时直接应用——
     // 否则每次启动都回到 createPetWindow 写死的 340x420，调过的大小白调了。
