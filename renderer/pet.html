@@ -570,6 +570,17 @@
       resolveParams(core);
       reportCaps();   // 换了模型 → 把新的表情/动作能力报给设置页（情绪系统据此重配）
 
+      // 口型参数因模型而异：优先用模型 model3.json 里自己声明的 LipSync 组
+      // （Mao 是 ParamA，Hiyori 是 ParamMouthOpenY）——写死一个名字就会有模型不动嘴。
+      let lipIds = ["ParamMouthOpenY"];
+      try {
+        const st = model.internalModel.settings;
+        const groups = (st && (st.groups || (st.json && st.json.Groups))) || [];
+        const lg = groups.find((x) => (x.Name || x.name) === "LipSync");
+        const ids = lg && (lg.Ids || lg.ids);
+        if (ids && ids.length) lipIds = ids;
+      } catch {}
+
       // 手动参数写在管线最末，压过动作和物理。挂 afterMotionUpdate 是不行的：动作
       // 之后还有 eyeBlink / focus / breath / physics / pose 会继续写参数，把我们
       // 写的值冲掉。顺序：先舞蹈（管身体），再口型（管嘴）—— 嘴归说话独占。
@@ -588,13 +599,15 @@
         if (lip.active) {
           const raw = core._model && core._model.parameters;
           if (raw) {
-            const i = Array.prototype.indexOf.call(raw.ids, "ParamMouthOpenY");
-            if (i >= 0) {
-              const v = raw.minimumValues[i] + (raw.maximumValues[i] - raw.minimumValues[i]) * lip.value;
-              core.setParameterValueByIndex(i, v);
+            for (const id of lipIds) {
+              const i = Array.prototype.indexOf.call(raw.ids, id);
+              if (i >= 0) {
+                const v = raw.minimumValues[i] + (raw.maximumValues[i] - raw.minimumValues[i]) * lip.value;
+                core.setParameterValueByIndex(i, v);
+              }
             }
           } else if (typeof core.setParamFloat === "function") {
-            core.setParamFloat("ParamMouthOpenY", lip.value);
+            for (const id of lipIds) core.setParamFloat(id, lip.value);
           }
         }
       });
