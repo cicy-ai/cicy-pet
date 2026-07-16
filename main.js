@@ -100,7 +100,9 @@ app.whenReady().then(async () => {
     try {
         const cacheDir = path.join(app.getPath('userData'), '.tts-cache');
         ctx.rendererServer = await createServer({ appDir: basePath, cacheDir, assetDir, port: 13004,
-            log: (...a) => console.log(...a) });
+            log: (...a) => console.log(...a),
+            // doubao TTS 的 key 存在 config.json（gitignore），server 按需读
+            getConfig: () => configManager.loadConfigFile().catch(() => ({})) });
     } catch (e) {
         console.error('[server] failed to start:', e.message);
     }

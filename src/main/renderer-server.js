@@ -24,7 +24,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const DEFAULT_ENGINE = 'edge';
-const DEFAULT_VOICE = { say: 'Tingting', edge: 'zh-CN-XiaoyiNeural' };
+const DEFAULT_VOICE = { say: 'Tingting', edge: 'zh-CN-XiaoyiNeural', doubao: 'zh_female_shuangkuaisisi_uranus_bigtts' };
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -38,6 +38,53 @@ const MIME = {
 const NO_PROXY_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => !/^(http_proxy|https_proxy|all_proxy)$/i.test(k))
 );
+
+// 豆包（方舟）2.0 大模型音色——纯 HTTP 调用，无本地依赖，mac/win/linux 通吃。
+// 需要 config.json 里配 doubaoKey（火山方舟语音合成的 API Key）。
+const DOUBAO_VOICES = [
+  { id: 'zh_female_shuangkuaisisi_uranus_bigtts', name: '爽快思思 · 女 · 活泼' },
+  { id: 'zh_female_tianmeixiaoyuan_uranus_bigtts', name: '甜美小源 · 女 · 甜美' },
+  { id: 'zh_female_cancan_uranus_bigtts', name: '知性灿灿 · 女 · 角色' },
+  { id: 'zh_female_xiaohe_uranus_bigtts', name: '小何 · 女 · 通用' },
+  { id: 'zh_female_vv_uranus_bigtts', name: 'Vivi · 女 · 多语种' },
+  { id: 'zh_male_taocheng_uranus_bigtts', name: '小天 · 男 · 通用' },
+];
+
+// 豆包 TTS：JSON-lines 流，每行 {code, data: base64 mp3 块}，拼起来就是完整 mp3。
+// （前端 decodeAudioData 认字节不认扩展名，mp3 直接可播。）接法参考 BaiLongma。
+async function doubaoSynth({ voice, text, rate, key }) {
+  if (!key) throw new Error('doubaoKey 未配置（config.json）');
+  const speaker = voice || 'zh_female_shuangkuaisisi_uranus_bigtts';
+  const resourceId = /_moon_bigtts$/.test(speaker) || /^BV\d+(_24k)?_streaming$/.test(speaker)
+    ? 'seed-tts-1.0' : 'seed-tts-2.0';
+  const reqParams = { text, speaker, audio_params: { format: 'mp3', sample_rate: 24000 } };
+  const r = parseInt(rate, 10);   // 前端传 "+8%" → 8；豆包 speech_rate 0=原速 100=2倍
+  if (Number.isFinite(r) && r !== 0) reqParams.audio_params.speech_rate = Math.max(-50, Math.min(100, r));
+  const resp = await fetch('https://openspeech.bytedance.com/api/v3/tts/unidirectional', {
+    method: 'POST',
+    headers: {
+      'X-Api-Key': key,
+      'X-Api-Resource-Id': resourceId,
+      'X-Api-Request-Id': `cicy_${Date.now()}_${process.pid}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user: { uid: 'cicy-pet' }, req_params: reqParams }),
+  });
+  if (!resp.ok) throw new Error(`doubao ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  const raw = Buffer.from(await resp.arrayBuffer());
+  if ((resp.headers.get('content-type') || '').includes('audio/')) return raw;
+  const chunks = [];
+  for (const rawLine of raw.toString('utf8').split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^data:\s*/, '');
+    if (!line || line === '[DONE]' || !line.startsWith('{')) continue;
+    const d = JSON.parse(line);
+    const code = Number(d.code ?? d.status_code ?? 0);
+    if (code > 0 && code !== 20000000) throw new Error(`doubao ${code}: ${d.message || d.status_text || ''}`);
+    if (d.data) chunks.push(Buffer.from(d.data, 'base64'));
+  }
+  if (!chunks.length) throw new Error('doubao: 没拿到音频数据');
+  return Buffer.concat(chunks);
+}
 
 // 昵称表：edge 的中文神经音色
 const EDGE_NICE = {
@@ -120,12 +167,25 @@ async function systemVoices() {
   return sayVoices();
 }
 
-function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {} }) {
+function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {}, getConfig = null }) {
   const rendererDir = path.join(appDir, 'renderer');
   let voicesCache = null;
 
+  // doubaoKey 之类的密钥存 config.json，由宿主注入读取器；没有注入时回落读 appDir/config.json
+  async function readSecrets() {
+    try {
+      if (getConfig) return (await getConfig()) || {};
+      return JSON.parse(fs.readFileSync(path.join(appDir, 'config.json'), 'utf8'));
+    } catch { return {}; }
+  }
+
   async function allVoices() {                // 懒加载：edge 列表要联网，慢起来十几秒
-    if (!voicesCache) voicesCache = [...await edgeVoices(), ...await systemVoices()];
+    if (!voicesCache) {
+      const doubao = (await readSecrets()).doubaoKey
+        ? DOUBAO_VOICES.map((v) => ({ engine: 'doubao', id: v.id, name: v.name }))
+        : [];
+      voicesCache = [...doubao, ...await edgeVoices(), ...await systemVoices()];
+    }
     return voicesCache;
   }
 
@@ -141,6 +201,11 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cicypet-'));
     const wav = path.join(tmp, 'o.wav');
     try {
+      if (engine === 'doubao') {
+        const mp3 = await doubaoSynth({ voice, text, rate, key: (await readSecrets()).doubaoKey });
+        fs.writeFileSync(out, mp3);   // 缓存文件后缀 .wav 但内容是 mp3——前端按字节嗅探，无所谓
+        return { wav: mp3, hit: false };
+      }
       if (engine === 'edge') {
         // edge 需要 python3 + afconvert；mac 上默认可用，win/linux 上多半没有（前端会
         // 自动回落到 say）。前端口型用 buf.sampleRate 自适应，所以采样率不必强行归一。
@@ -237,7 +302,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         const engine = u.searchParams.get('engine') || DEFAULT_ENGINE;
         const voice = u.searchParams.get('voice') || DEFAULT_VOICE[engine] || '';
         if (!text) { res.statusCode = 400; return res.end('text required'); }
-        if (engine !== 'say' && engine !== 'edge') { res.statusCode = 400; return res.end('bad engine'); }
+        if (!['say', 'edge', 'doubao'].includes(engine)) { res.statusCode = 400; return res.end('bad engine'); }
         // rate/pitch 只对 edge 生效，格式 ±N% / ±NHz（防注入：只放行这两种形状）
         const rate = /^[+-]\d{1,3}%$/.test(u.searchParams.get('rate') || '') ? u.searchParams.get('rate') : '';
         const pitch = /^[+-]\d{1,3}Hz$/.test(u.searchParams.get('pitch') || '') ? u.searchParams.get('pitch') : '';
