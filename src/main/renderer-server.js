@@ -438,6 +438,41 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         });
         return;
       }
+      // 视觉：POST {image(base64 或 dataURL), prompt} → 智谱 GLM-4V-Flash（免费）→ {text}
+      // CiCy「看屏幕」用它：渲染端截屏传进来，这里代理调用（key 不暴露给页面）。
+      if (u.pathname === '/vision' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', async () => {
+          try {
+            const { image, prompt } = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+            if (!image) { res.statusCode = 400; return res.end('image required'); }
+            const key = (await readSecrets()).zhipuKey;
+            if (!key) { res.statusCode = 503; return res.end('zhipuKey 未配置'); }
+            const url = /^data:/.test(image) ? image : `data:image/jpeg;base64,${image}`;
+            const r = await agentFetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: 'glm-4v-flash',
+                messages: [{ role: 'user', content: [
+                  { type: 'text', text: prompt || '简短描述这张屏幕截图里用户在做什么。' },
+                  { type: 'image_url', image_url: { url } },
+                ] }],
+              }),
+            });
+            const j = await r.json();
+            const text = ((j.choices && j.choices[0].message.content) || '').replace(/<\|[^|]*\|>/g, '').trim();
+            const body = Buffer.from(JSON.stringify({ text }), 'utf8');
+            noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
+            res.end(body);
+          } catch (e) {
+            log('[vision] failed:', e.message);
+            res.statusCode = 500; res.end('vision failed: ' + e.message);
+          }
+        });
+        return;
+      }
       // 豆包流式 TTS：边合成边下发裸 PCM，前端边收边播（首字快）。只有 doubao 走这里。
       if (u.pathname === '/tts-stream') {
         const text = (u.searchParams.get('text') || '').trim();
