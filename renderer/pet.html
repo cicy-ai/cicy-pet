@@ -1050,11 +1050,20 @@
 
     window.addEventListener("resize", fit);
 
-    loadModel(cfg.model).then(() => {
+    // 首次加载可能撞上时序竞态（依赖脚本/字体/首帧未就绪）——失败自动重试，
+    // 不然 .then 吞掉错误就永远空场（「形象出不来」）。
+    (async function bootModel() {
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          await loadModel(cfg.model);
+          if (model) break;
+        } catch (e) { console.error("[boot] loadModel try", attempt, e); }
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
+      if (!model) { console.error("[boot] 模型多次加载失败"); return; }
       bus.postMessage({ type: "ready" });
-      // ?entrance=1 → 一加载就自动飞入（拍视频时开着它，打开=Mao 冲进来）
       if (params.get("entrance")) setTimeout(() => windowFlight(), 500);
-    });
+    })();
 
     // 设置页发来的指令
     bus.addEventListener("message", async (e) => {
