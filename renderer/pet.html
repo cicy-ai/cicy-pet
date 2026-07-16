@@ -481,6 +481,9 @@
       app.stage.addChildAt(aura, 0);    // 永远垫在模型脚下
 
       app.ticker.add(() => {
+        // 看门狗：长按发起的录音，但长按状态已经不在了（松手事件被劫持/丢失）→ 强制收尾。
+        // 无论哪个环节丢了 pointerup，这里每帧兜底，录音不可能卡死。
+        if (rec && rec.byHold && !pttHolding) voiceFinish();
         if (!aura) return;
         const target = auraOn && model ? 1 : 0;
         aura.alpha += (target - aura.alpha) * 0.12;
@@ -518,8 +521,12 @@
     let rec = null;
 
     // 录音 = 本地留一份（whisper 兜底）+ 同时流式推给 /asr（火山）→ 字幕边说边长。
-    async function voiceBegin() {
-      if (rec) return;
+    // recStarting/pendingFinish：getUserMedia 是异步的，松手若发生在「麦克风还在打开中」，
+    // voiceFinish 会扑空 → 随后 mic 打开、录音卡死。这里握手：开完发现有欠账就立刻收尾。
+    let recStarting = false, pendingFinish = false;
+    async function voiceBegin(byHold) {
+      if (rec || recStarting) return;
+      recStarting = true;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const ctx = new AudioContext({ sampleRate: 16000 });
@@ -543,7 +550,7 @@
             } catch {}
           };
         } catch {}
-        rec = { ctx, stream, proc, bufs, segs, ws };
+        rec = { ctx, stream, proc, bufs, segs, ws, byHold: !!byHold };
         ensureAura();
         auraOn = true;                       // 脚下光环亮起
         proc.onaudioprocess = (e) => {
@@ -561,17 +568,23 @@
         };
         src.connect(proc);
         proc.connect(ctx.destination);
-        bubble("🎤 在听……", true);
+        // 不放「在听」气泡——脚下光环就是聆听指示，字幕等真开口了再出
       } catch (e) {
         rec = null;
         auraOn = false;
         bubble("麦克风打不开：" + (e.message || e), true);
         setTimeout(() => bubble("", false), 3000);
+      } finally {
+        recStarting = false;
       }
+      if (pendingFinish) { pendingFinish = false; voiceFinish(); }
     }
 
     async function voiceFinish() {
-      if (!rec) return;
+      if (!rec) {
+        if (recStarting) pendingFinish = true;   // 麦克风还在开 → 记账，开完立即收
+        return;
+      }
       auraOn = false;                        // 光环渐隐
       const { ctx, stream, proc, bufs, segs, ws } = rec;
       rec = null;
@@ -1035,8 +1048,10 @@
     let trail = [];   // 拖动轨迹（判定「甩出去」用的速度采样）
     let pressArmed = false, pressX = 0, pressY = 0, pttTimer = 0, pttHolding = false;
 
-    window.addEventListener("mousedown", async (e) => {
+    window.addEventListener("pointerdown", async (e) => {
       if (e.button !== 0 || !api) return;
+      // 指针捕获：松手发生在窗口外也能收到 pointerup（不捕获就会丢，录音停不下来）
+      try { document.body.setPointerCapture(e.pointerId); } catch {}
       const [cur, b] = await Promise.all([api.getCursorPosition(), api.getWindowBounds()]);
       offX = cur.x - b.x;
       offY = cur.y - b.y;
@@ -1048,11 +1063,12 @@
         if (!pressArmed || dragging) return;
         pressArmed = false;
         pttHolding = true;    // 长按成立 → 按住说话
-        voiceBegin();
+        voiceBegin(true);     // 标记「长按发起」——看门狗据此兜底
       }, 400);
     });
 
-    window.addEventListener("mouseup", () => {
+    // allowFling=false 用于兜底路径（失焦等）——只收尾，不触发甩飞
+    function endPress(allowFling) {
       clearTimeout(pttTimer);
       pressArmed = false;
       if (pttHolding) {       // 松手 = 说完，立即定稿发送
@@ -1060,19 +1076,33 @@
         voiceFinish();
         return;
       }
+      const wasDragging = dragging;
       dragging = false;
-      // 甩出判定：取最近 ~120ms 的轨迹算速度，够快就顺着方向飞出屏幕
-      const now = performance.now();
-      const seg = trail.filter((s) => now - s.t < 120);
-      if (seg.length >= 2) {
-        const a = seg[0], z = seg[seg.length - 1], dt = (z.t - a.t) / 1000;
-        if (dt > 0) {
-          const vx = (z.x - a.x) / dt, vy = (z.y - a.y) / dt;
-          if (Math.hypot(vx, vy) > 1300) flingOut(vx, vy);
+      if (allowFling && wasDragging) {
+        // 甩出判定：取最近 ~120ms 的轨迹算速度，够快就顺着方向飞出屏幕
+        const now = performance.now();
+        const seg = trail.filter((s) => now - s.t < 120);
+        if (seg.length >= 2) {
+          const a = seg[0], z = seg[seg.length - 1], dt = (z.t - a.t) / 1000;
+          if (dt > 0) {
+            const vx = (z.x - a.x) / dt, vy = (z.y - a.y) / dt;
+            if (Math.hypot(vx, vy) > 1300) flingOut(vx, vy);
+          }
         }
       }
       trail = [];
+    }
+
+    window.addEventListener("pointerup", (e) => {
+      try { document.body.releasePointerCapture(e.pointerId); } catch {}
+      endPress(true);
     });
+    window.addEventListener("pointercancel", () => endPress(false));
+    // 双保险：光标回到窗口上但左键已松（捕获失效的场景）/ 窗口失焦
+    window.addEventListener("pointermove", (e) => {
+      if ((pttHolding || pressArmed || dragging) && (e.buttons & 1) === 0) endPress(false);
+    });
+    window.addEventListener("blur", () => endPress(false));
 
     // 用 rAF 拉，而不是监听 mousemove —— 鼠标一旦跑出窗口（拖快了就会），
     // 渲染进程就收不到 mousemove 了，窗口会「掉队」。轮询光标位置没这个问题。
