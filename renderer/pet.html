@@ -848,7 +848,7 @@
           body: JSON.stringify({ text: userText }),
         });
         if (!r.ok) throw new Error(await r.text());
-        let reply = ((await r.json()).text || "").trim();
+        let reply = ((await r.json()).answer || "").trim();
         if (!reply) { speak("嗯……我这会儿没想好怎么答。"); return; }
         // 动作暗号（若 Sherlly 用了）——读出来之前剥掉并执行
         for (const [tag, act] of Object.entries(ACTION_TAGS)) {
@@ -857,7 +857,10 @@
             try { act(); } catch (err) { console.error("[action]", tag, err); }
           }
         }
-        reply = reply.trim();
+        // Sherlly 是干活 agent，回复可能带 markdown / 很长——桌宠只念干净的短句
+        reply = reply.replace(/```[\s\S]*?```/g, "").replace(/[#*`>_~|]/g, "")
+                     .replace(/\n{2,}/g, "。").replace(/\n/g, "，").trim();
+        if (reply.length > 120) reply = reply.slice(0, 118) + "…";
         if (reply) speak(reply);
       } catch (e) {
         speak("呜，连不上大脑。");

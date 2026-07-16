@@ -202,6 +202,57 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     return out;
   }
 
+  // ── Sherlly agent 桥 ──────────────────────────────────────────────────────
+  // 发消息给 cicy-code 的 agent pane，轮询 current-reply 直到那一轮跑完，取纯文本回复。
+  const AGENT_BASE = process.env.CICY_API_PORT ? `http://127.0.0.1:${process.env.CICY_API_PORT}` : 'http://127.0.0.1:8008';
+  // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
+  // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。
+  let noProxyDispatcher = null;
+  try {
+    const { Agent } = require('undici');
+    noProxyDispatcher = new Agent();
+  } catch {}
+  const agentFetch = (url, opts = {}) =>
+    fetch(url, noProxyDispatcher ? { ...opts, dispatcher: noProxyDispatcher } : opts);
+  async function agentToken() {
+    const s = await readSecrets();
+    if (s.cicyToken) return s.cicyToken;
+    try {
+      const g = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'cicy-ai', 'global.json'), 'utf8'));
+      return g.api_token || '';
+    } catch { return ''; }
+  }
+  async function agentPane() { return (await readSecrets()).agentPane || 'w-10242'; }
+
+  async function askAgent(text) {
+    const token = await agentToken();
+    const pane = await agentPane();
+    const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const replyUrl = `${AGENT_BASE}/api/agents/current-reply/${pane}`;
+    // 基线 turn_id：发送前记住，等它变化＝新一轮的回复
+    let baseTurn = '';
+    try { baseTurn = (await (await agentFetch(replyUrl, { headers: H })).json()).turn_id || ''; } catch {}
+    // 发送
+    const send = await agentFetch(`${AGENT_BASE}/api/tmux/send`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ win_id: pane, text, submit: true }),
+    });
+    if (!send.ok) throw new Error(`send ${send.status}: ${(await send.text()).slice(0, 120)}`);
+    // 轮询新一轮完成（最多 90s；agent 干活可能慢）
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 700));
+      let j;
+      try { j = await (await agentFetch(replyUrl, { headers: H })).json(); } catch { continue; }
+      const turn = (j.turn_id || '').trim();
+      if (turn && turn !== baseTurn && j.complete) {
+        const ans = (j.answer || '').trim();
+        if (ans) return ans;
+      }
+    }
+    throw new Error('agent 超时未回复');
+  }
+
   async function allVoices() {                // 懒加载：edge 列表要联网，慢起来十几秒
     if (!voicesCache) {
       const doubao = (await readSecrets()).doubaoKey
@@ -287,51 +338,6 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
         return res.end(body);
       }
-      // 大脑桥：把用户的话转给 Sherlly（cicy-code 里的 agent），等它答完取回文字。
-      // 渲染进程不持 token，统一在这里代理。Sherlly 才是能真操作电脑的大脑。
-      if (u.pathname === '/agent' && req.method === 'POST') {
-        const chunks = [];
-        req.on('data', (c) => chunks.push(c));
-        req.on('end', async () => {
-          try {
-            const { text } = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-            if (!text) { res.statusCode = 400; return res.end('text required'); }
-            const s = await readSecrets();
-            const pane = s.agentPane || 'w-10242';
-            const base = s.cicyApi || 'http://127.0.0.1:8008';
-            let token = s.cicyToken;
-            if (!token) {   // 回落读 ~/cicy-ai/global.json 的 api_token
-              try { token = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'cicy-ai', 'global.json'), 'utf8')).api_token; } catch {}
-            }
-            const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-            const post = (p, body) => fetch(base + p, { method: 'POST', headers: H, body: JSON.stringify(body) }).then((r) => r.json());
-            // 记下发问前的 turn，用它判断新回复出现
-            let prevTurn = null;
-            try { prevTurn = (await post('/api/tmux/reply_text', { pane_id: pane })).turn_id; } catch {}
-            await post('/api/tmux/send', { pane_id: pane, text });
-            // 轮询直到出现「新 turn 且 completed」（agent 要思考/可能跑工具，给足 90s）
-            const deadline = Date.now() + 90000;
-            let answer = '';
-            while (Date.now() < deadline) {
-              await new Promise((r) => setTimeout(r, 1200));
-              let rep;
-              try { rep = await post('/api/tmux/reply_text', { pane_id: pane }); } catch { continue; }
-              if (rep && rep.turn_id && rep.turn_id !== prevTurn && rep.status === 'completed') {
-                answer = extractSpoken(rep.text || '');
-                break;
-              }
-            }
-            const body = Buffer.from(JSON.stringify({ text: answer }), 'utf8');
-            noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
-            res.end(body);
-          } catch (e) {
-            log('[agent] failed:', e.message);
-            res.statusCode = 500; res.end('agent failed: ' + e.message);
-          }
-        });
-        return;
-      }
-
       // 语音转文字：POST 16kHz 单声道 wav → 本地 whisper-cli（离线、免 key）→ {text}
       // 模型放 ~/.cache/whisper-cpp/ggml-small.bin（或 WHISPER_MODEL 指定）。
       if (u.pathname === '/stt' && req.method === 'POST') {
@@ -361,6 +367,27 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
             res.statusCode = 500; res.end('stt failed: ' + e.message);
           } finally {
             fs.rmSync(tmp, { recursive: true, force: true });
+          }
+        });
+        return;
+      }
+      // ── /agent：把宠物的话交给 cicy-code 的 Sherlly agent，等它跑完把文字回复拿回来 ──
+      // 宠物 = 脸和嘴，Sherlly = 有手有脚的大脑。发送走 cicy-agent，取回复轮询 current-reply。
+      if (u.pathname === '/agent' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', async () => {
+          let text = '';
+          try { text = (JSON.parse(Buffer.concat(chunks).toString()).text || '').trim(); } catch {}
+          if (!text) { res.statusCode = 400; return res.end('text required'); }
+          try {
+            const answer = await askAgent(text);
+            const body = Buffer.from(JSON.stringify({ answer }), 'utf8');
+            noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
+            res.end(body);
+          } catch (e) {
+            log('[agent] failed:', e.message);
+            res.statusCode = 500; res.end('agent failed: ' + e.message);
           }
         });
         return;
