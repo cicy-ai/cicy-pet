@@ -66,6 +66,10 @@
       pitch: params.get("pitch") || saved.pitch || "+20Hz",
     };
 
+    // 记住的形象大小：设置页把 size 存进 pet_config，这里启动时直接应用——
+    // 否则每次启动都回到 createPetWindow 写死的 340x420，调过的大小白调了。
+    if (api && +saved.size) api.setWindowSize?.(+saved.size, Math.round(+saved.size * 1.25));
+
     // 性能：桌宠是「一直在跑」的 WebGL，默认 60fps + Retina 2x 像素（=4 倍工作量）+
     // 透明置顶窗口的合成开销，弱机器会明显卡。两刀砍一半：
     //   ① resolution 锁 1x（不按 Retina 2x 渲，肉眼几乎无差）
