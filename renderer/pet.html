@@ -646,9 +646,8 @@
         text = [...segs.values()].map((s) => s.text).join("").trim();
       }
       try { ws?.close(); } catch {}
-      // 流式没出结果（没配 key/断网/被拒）→ 本地 whisper 兜底
+      // 流式没出结果（没配 key/断网/被拒）→ 本地 whisper 兜底（不放提示气泡，安静地转）
       if (!text) {
-        bubble("🧠 听懂中……", true);
         try {
           const res = await fetch("/stt", { method: "POST", body: encodeWav(bufs, n, 16000) });
           if (res.ok) text = ((await res.json()).text || "").replace(/\[.*?\]|\(.*?\)/g, "").trim();
