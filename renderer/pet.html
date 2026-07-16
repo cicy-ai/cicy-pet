@@ -523,12 +523,27 @@
     // 录音 = 本地留一份（whisper 兜底）+ 同时流式推给 /asr（火山）→ 字幕边说边长。
     // recStarting/pendingFinish：getUserMedia 是异步的，松手若发生在「麦克风还在打开中」，
     // voiceFinish 会扑空 → 随后 mic 打开、录音卡死。这里握手：开完发现有欠账就立刻收尾。
-    let recStarting = false, pendingFinish = false;
+    let recStarting = false, pendingFinish = false, pendingCancel = false;
+    // 麦克风保温：用完不立刻关，留 60s——连续对话第二句起零延迟开录
+    let micCache = null, micCacheTimer = 0;
+    async function getMic() {
+      clearTimeout(micCacheTimer);
+      if (micCache && micCache.active) return micCache;
+      micCache = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return micCache;
+    }
+    function parkMic() {
+      clearTimeout(micCacheTimer);
+      micCacheTimer = setTimeout(() => {
+        try { micCache?.getTracks().forEach((t) => t.stop()); } catch {}
+        micCache = null;
+      }, 60000);
+    }
     async function voiceBegin(byHold) {
       if (rec || recStarting) return;
       recStarting = true;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await getMic();
         const ctx = new AudioContext({ sampleRate: 16000 });
         const src = ctx.createMediaStreamSource(stream);
         const proc = ctx.createScriptProcessor(4096, 1, 1);
@@ -577,7 +592,23 @@
       } finally {
         recStarting = false;
       }
-      if (pendingFinish) { pendingFinish = false; voiceFinish(); }
+      if (pendingCancel) { pendingCancel = false; pendingFinish = false; voiceCancel(); }
+      else if (pendingFinish) { pendingFinish = false; voiceFinish(); }
+    }
+
+    // 丢弃这次录音（快速点按/拖动/失焦等），什么都不发送
+    function voiceCancel() {
+      if (!rec) {
+        if (recStarting) pendingCancel = true;
+        return;
+      }
+      auraOn = false;
+      const { ctx, proc, ws } = rec;
+      rec = null;
+      try { proc.disconnect(); ctx.close(); } catch {}
+      try { ws?.close(); } catch {}
+      parkMic();
+      bubble("", false);
     }
 
     async function voiceFinish() {
@@ -586,9 +617,10 @@
         return;
       }
       auraOn = false;                        // 光环渐隐
-      const { ctx, stream, proc, bufs, segs, ws } = rec;
+      const { ctx, proc, bufs, segs, ws } = rec;
       rec = null;
-      try { proc.disconnect(); stream.getTracks().forEach((t) => t.stop()); ctx.close(); } catch {}
+      try { proc.disconnect(); ctx.close(); } catch {}
+      parkMic();                             // 麦克风保温 60s,不立刻关
       const n = bufs.reduce((s, b) => s + b.length, 0);
       if (n < 16000 * 0.35) {   // 太短当误触
         try { ws?.close(); } catch {}
@@ -1043,37 +1075,37 @@
     // 窗口是 frameless 的，没有标题栏可拖。用 Live2DPet preload 暴露的
     // getCursorPosition / getWindowBounds / setWindowPosition 自己实现：
     // 按下时记住「光标 - 窗口左上角」的偏移，移动时保持这个偏移。
-    // 手势三分：按下后 → 动了(>8px)=拖动；按住不动 0.4s=按住说话；快速松开=普通点按。
+    // 手势：按下瞬间就开录（一按就能说，开头不丢字）——松手时再定性：
+    //   按住 ≥0.35s = 说话，定稿发送；快速点一下 = 普通点按，录音丢弃；
+    //   中途动了 >8px = 拖动，录音丢弃。
     let dragging = false, offX = 0, offY = 0;
     let trail = [];   // 拖动轨迹（判定「甩出去」用的速度采样）
-    let pressArmed = false, pressX = 0, pressY = 0, pttTimer = 0, pttHolding = false;
+    let pressArmed = false, pressX = 0, pressY = 0, pressT0 = 0, pttHolding = false;
 
     window.addEventListener("pointerdown", async (e) => {
       if (e.button !== 0 || !api) return;
       // 指针捕获：松手发生在窗口外也能收到 pointerup（不捕获就会丢，录音停不下来）
       try { document.body.setPointerCapture(e.pointerId); } catch {}
+      pressT0 = performance.now();
+      pressArmed = true;
+      pttHolding = true;      // 先按「要说话」处理，拖动/快点再反悔
+      ensureAura();
+      auraOn = true;          // 按下即亮，即时反馈
+      voiceBegin(true);       // 立刻开录（麦克风保温后是零延迟）
       const [cur, b] = await Promise.all([api.getCursorPosition(), api.getWindowBounds()]);
       offX = cur.x - b.x;
       offY = cur.y - b.y;
       pressX = cur.x; pressY = cur.y;
       trail = [];
-      pressArmed = true;      // 先按兵不动，看是拖还是长按
-      clearTimeout(pttTimer);
-      pttTimer = setTimeout(() => {
-        if (!pressArmed || dragging) return;
-        pressArmed = false;
-        pttHolding = true;    // 长按成立 → 按住说话
-        voiceBegin(true);     // 标记「长按发起」——看门狗据此兜底
-      }, 400);
     });
 
     // allowFling=false 用于兜底路径（失焦等）——只收尾，不触发甩飞
     function endPress(allowFling) {
-      clearTimeout(pttTimer);
       pressArmed = false;
-      if (pttHolding) {       // 松手 = 说完，立即定稿发送
+      if (pttHolding) {
         pttHolding = false;
-        voiceFinish();
+        if (performance.now() - pressT0 >= 350) voiceFinish();  // 按住说话 → 发送
+        else voiceCancel();                                      // 快速点按 → 丢弃
         return;
       }
       const wasDragging = dragging;
@@ -1110,8 +1142,9 @@
       if ((dragging || pressArmed) && api) {
         api.getCursorPosition().then((cur) => {
           if (pressArmed && Math.hypot(cur.x - pressX, cur.y - pressY) > 8) {
-            pressArmed = false;          // 动了 → 是拖动，不是长按
-            clearTimeout(pttTimer);
+            pressArmed = false;          // 动了 → 是拖动，不是说话
+            pttHolding = false;
+            voiceCancel();               // 丢弃已录的开头
             dragging = true;
           }
           if (!dragging) return;
