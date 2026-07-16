@@ -199,6 +199,39 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
         return res.end(body);
       }
+      // 语音转文字：POST 16kHz 单声道 wav → 本地 whisper-cli（离线、免 key）→ {text}
+      // 模型放 ~/.cache/whisper-cpp/ggml-small.bin（或 WHISPER_MODEL 指定）。
+      if (u.pathname === '/stt' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', async () => {
+          const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cicystt-'));
+          try {
+            const mdlDir = path.join(os.homedir(), '.cache', 'whisper-cpp');
+            const model = process.env.WHISPER_MODEL
+              || ['ggml-small.bin', 'ggml-base.bin'].map((f) => path.join(mdlDir, f)).find((p) => fs.existsSync(p));
+            if (!model || !fs.existsSync(model)) { res.statusCode = 503; return res.end('whisper model missing'); }
+            const wav = path.join(tmp, 'in.wav');
+            fs.writeFileSync(wav, Buffer.concat(chunks));
+            // GUI 启动时 PATH 常不含 /usr/local/bin，优先用绝对路径
+            const bin = ['/usr/local/bin/whisper-cli', '/opt/homebrew/bin/whisper-cli']
+              .find((p) => fs.existsSync(p)) || 'whisper-cli';
+            // --prompt 偏置成简体（whisper 中文默认爱出繁体）
+            const out = (await run(bin,
+              ['-m', model, '-f', wav, '-l', 'zh', '-nt', '-np',
+               '--prompt', '以下是普通话的简体中文。'])).toString('utf8').trim();
+            const body = Buffer.from(JSON.stringify({ text: out }), 'utf8');
+            noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
+            res.end(body);
+          } catch (e) {
+            log('[stt] failed:', e.message);
+            res.statusCode = 500; res.end('stt failed: ' + e.message);
+          } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+          }
+        });
+        return;
+      }
       if (u.pathname === '/tts') {
         const text = (u.searchParams.get('text') || '').trim();
         const engine = u.searchParams.get('engine') || DEFAULT_ENGINE;

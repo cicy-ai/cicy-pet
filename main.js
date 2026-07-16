@@ -139,6 +139,13 @@ app.whenReady().then(async () => {
     globalShortcut.register('Alt+M', () => petEval('window.petScript && window.petScript.next()'));
     // Alt+X = 一键甩飞（拍「手一滑她就没了」的镜头，用触控板甩不好拍时的保险）
     globalShortcut.register('Alt+X', () => petEval('window.pet && window.pet.flingOut && window.pet.flingOut()'));
+    // Alt+Space = 语音对话：按一下开始录音，再按一下（或静音 1.5s）结束 → whisper → AI → 开口回答。
+    // （全局快捷键收不到 keyup，「长按说话」做不了，退而求其次用「按一下/自动收音」。）
+    globalShortcut.register('Alt+Space', () => petEval('window.petVoice && window.petVoice.toggle()'));
+    // 语音对话要用麦克风：mac 首次要向系统讨权限（记住后不再弹）
+    if (process.platform === 'darwin') {
+        try { require('electron').systemPreferences.askForMediaAccess('microphone').catch(() => {}); } catch {}
+    }
 
     // Initialize TTS after windows are created (non-blocking)
     setImmediate(async () => {
