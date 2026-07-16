@@ -654,8 +654,8 @@
         } catch {}
       }
       if (!text) { bubble("没听清，再说一遍？", true); setTimeout(() => bubble("", false), 2500); return; }
-      dataChirp();   // 「收到指令」数据雨——填掉 AI 思考的空档
-      bubble("你：" + text, true);
+      dataChirp();       // 「收到指令」数据雨——填掉 AI 思考的空档
+      bubble("", false); // 松手后不回显「你说的话」，字幕只在说的过程中出现
       await chatReply(text);
     }
 
