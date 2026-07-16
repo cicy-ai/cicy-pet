@@ -78,6 +78,18 @@ registerModelImport(ctx, ipcMain, {
 
 // ========== App Lifecycle ==========
 
+// 单实例锁：重复启动（双击两次 .command/.bat 很常见）只会叠出两只互相打架的宠物
+// ——第二个实例直接退出，把已在跑的那只带到前面。
+if (!app.requestSingleInstanceLock()) {
+    app.quit();
+}
+app.on('second-instance', () => {
+    if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
+        ctx.petWindow.show();
+        ctx.petWindow.focus();
+    }
+});
+
 app.whenReady().then(async () => {
     ctx.pathUtils = createPathUtils(app, path);
     try { ctx._cachedLang = (await configManager.loadConfigFile()).uiLanguage || 'en'; } catch {}
