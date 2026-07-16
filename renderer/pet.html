@@ -860,10 +860,21 @@
             try { act(); } catch (err) { console.error("[action]", tag, err); }
           }
         }
-        // Sherlly 是干活 agent，回复可能带 markdown / 很长——桌宠只念干净的短句
-        reply = reply.replace(/```[\s\S]*?```/g, "").replace(/[#*`>_~|]/g, "")
-                     .replace(/\n{2,}/g, "。").replace(/\n/g, "，").trim();
-        if (reply.length > 120) reply = reply.slice(0, 118) + "…";
+        // Sherlly 是干活 agent，回复常带 markdown / 表格 / 很长。清成能顺口念的文本：
+        // 去代码块、去表格行、拆表头、markdown 符号 → 空，多余空行并成句号。
+        reply = reply
+          .replace(/```[\s\S]*?```/g, "")
+          .replace(/^\s*\|.*\|\s*$/gm, (r) => r.replace(/\|/g, "，").replace(/[-:\s]{3,}/g, ""))
+          .replace(/^[-*•>#]+\s*/gm, "")
+          .replace(/[#*`_~|]/g, "")
+          .replace(/\n{2,}/g, "。").replace(/\n/g, "，")
+          .replace(/[，。]{2,}/g, (m) => m[m.length - 1]).trim();
+        // 太长就在句子边界收尾（别切半句）：优先留完整的前几句，上限 ~200 字
+        if (reply.length > 200) {
+          const cut = reply.slice(0, 200);
+          const lastEnd = Math.max(cut.lastIndexOf("。"), cut.lastIndexOf("！"), cut.lastIndexOf("？"));
+          reply = lastEnd > 40 ? cut.slice(0, lastEnd + 1) : cut + "。";
+        }
         if (reply) speak(reply);
       } catch (e) {
         speak("呜，连不上大脑。");
