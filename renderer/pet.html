@@ -1331,12 +1331,86 @@
     // CiCy 要读 seisei（英文 say say），直接给 TTS 会被拼成字母。
     const PRONOUNCE = [[/CiCy/gi, "say say"]];
 
+    // 流式播放：豆包 PCM 边收边排队播（首字快，无需等整句合成）。
+    // 用一条运行光标 gaplessly 把小块接起来；口型由共享 analyser 实时驱动。
+    let streamStop = null;
+    async function speakStream(text) {
+      const spoken = PRONOUNCE.reduce((t, [re, to]) => t.replace(re, to), text);
+      const url = `/tts-stream?text=${encodeURIComponent(spoken)}`
+        + `&voice=${encodeURIComponent(cfg.voice)}&rate=${encodeURIComponent(cfg.rate || "")}`;
+      const ctrl = new AbortController();
+      let stopped = false;
+      const sources = [];
+      const gain = audioCtx.createGain();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      gain.connect(analyser); analyser.connect(audioCtx.destination);
+      streamStop = () => {
+        stopped = true; ctrl.abort();
+        for (const s of sources) { try { s.stop(); } catch {} }
+        lip.active = false; lip.value = 0;
+      };
+      const SR = 24000;
+      let cursor = audioCtx.currentTime + 0.08;   // 起播缓冲，避免第一块欠载
+      let leftover = new Uint8Array(0);
+      const schedulePCM = (bytes) => {
+        // 拼上一块的余数，取偶数字节（Int16 对齐）
+        const merged = new Uint8Array(leftover.length + bytes.length);
+        merged.set(leftover); merged.set(bytes, leftover.length);
+        const usable = merged.length - (merged.length % 2);
+        leftover = merged.slice(usable);
+        if (usable < 2) return;
+        const n = usable / 2;
+        const i16 = new Int16Array(merged.buffer, 0, n);
+        const buf = audioCtx.createBuffer(1, n, SR);
+        const f32 = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) f32[i] = i16[i] / 32768;
+        const s = audioCtx.createBufferSource();
+        s.buffer = buf; s.connect(gain);
+        const at = Math.max(cursor, audioCtx.currentTime);
+        s.start(at); cursor = at + buf.duration;
+        sources.push(s);
+      };
+      lip.active = true;
+      bubble(text, true);
+      const buf = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        if (stopped) return;
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+        const rms = Math.sqrt(sum / buf.length);
+        lip.value += (Math.min(1, rms * 3.2) - lip.value) * 0.5;
+        rafId = requestAnimationFrame(tick);
+      };
+      tick();
+      const reqAt = performance.now();
+      try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        if (!res.ok) throw new Error(await res.text());
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done || stopped) break;
+          schedulePCM(value);
+        }
+        bus.postMessage({ type: "spoke", ok: true, cache: "stream", ms: Math.round(performance.now() - reqAt) });
+      } catch (e) {
+        if (!stopped) bus.postMessage({ type: "spoke", ok: false, error: String(e.message || e) });
+      }
+      // 播完（光标时间到）收口型
+      const endAt = Math.max(0, (cursor - audioCtx.currentTime) * 1000) + 120;
+      setTimeout(() => { if (streamStop) { streamStop = null; } lip.active = false; lip.value = 0; bubble("", false); }, endAt);
+    }
+
     async function speak(text) {
       stopSpeaking();
       if (!text || !text.trim()) return;
 
       audioCtx = audioCtx || new AudioContext();
       await audioCtx.resume();
+
+      if (cfg.engine === "doubao") return speakStream(text);   // 豆包走流式
 
       const spoken = PRONOUNCE.reduce((t, [re, to]) => t.replace(re, to), text);
       const reqAt = performance.now();
@@ -1393,6 +1467,7 @@
 
     function stopSpeaking() {
       cancelAnimationFrame(rafId);
+      if (streamStop) { streamStop(); streamStop = null; }   // 中止流式播放
       if (srcNode) {
         srcNode.onended = null;
         try { srcNode.stop(); } catch {}

@@ -86,6 +86,52 @@ async function doubaoSynth({ voice, text, rate, key }) {
   return Buffer.concat(chunks);
 }
 
+// 豆包流式 TTS：请求 PCM 格式，把每帧 base64 解码出的裸 PCM16 立刻写给 res。
+// 首字延迟≈一帧（几十 ms），前端边收边播。采样率 24k、单声道、LE16。
+async function doubaoStreamPCM(res, { voice, text, rate, key }) {
+  if (!key) throw new Error('doubaoKey 未配置');
+  const speaker = voice || 'zh_female_shuangkuaisisi_uranus_bigtts';
+  const resourceId = /_moon_bigtts$/.test(speaker) || /^BV\d+(_24k)?_streaming$/.test(speaker)
+    ? 'seed-tts-1.0' : 'seed-tts-2.0';
+  const reqParams = { text, speaker, audio_params: { format: 'pcm', sample_rate: 24000 } };
+  const r = parseInt(rate, 10);
+  if (Number.isFinite(r) && r !== 0) reqParams.audio_params.speech_rate = Math.max(-50, Math.min(100, r));
+  const resp = await fetch('https://openspeech.bytedance.com/api/v3/tts/unidirectional', {
+    method: 'POST',
+    headers: {
+      'X-Api-Key': key, 'X-Api-Resource-Id': resourceId,
+      'X-Api-Request-Id': `cicy_${Date.now()}_${process.pid}`, 'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ user: { uid: 'cicy-pet' }, req_params: reqParams }),
+  });
+  if (!resp.ok) throw new Error(`doubao ${resp.status}: ${(await resp.text()).slice(0, 160)}`);
+  res.writeHead(200, {
+    'Content-Type': 'audio/pcm', 'X-Sample-Rate': '24000',
+    'Cache-Control': 'no-store', 'Transfer-Encoding': 'chunked',
+  });
+  // web ReadableStream → 逐块解码 JSON-lines（行可能跨块，留 pending 拼接）
+  const reader = resp.body.getReader();
+  let pending = '';
+  const flushLine = (line) => {
+    const s = line.trim().replace(/^data:\s*/, '');
+    if (!s || s === '[DONE]' || !s.startsWith('{')) return;
+    let d; try { d = JSON.parse(s); } catch { return; }
+    const code = Number(d.code ?? d.status_code ?? 0);
+    if (code > 0 && code !== 20000000) throw new Error(`doubao ${code}: ${d.message || ''}`);
+    if (d.data) res.write(Buffer.from(d.data, 'base64'));   // 裸 PCM 立即下发
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    pending += Buffer.from(value).toString('utf8');
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() || '';
+    for (const ln of lines) flushLine(ln);
+  }
+  if (pending.trim()) flushLine(pending);
+  res.end();
+}
+
 // 昵称表：edge 的中文神经音色
 const EDGE_NICE = {
   'zh-CN-XiaoxiaoNeural': '晓晓 · 女 · 温柔', 'zh-CN-XiaoyiNeural': '晓伊 · 女 · 活泼',
@@ -390,6 +436,22 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
             res.statusCode = 500; res.end('agent failed: ' + e.message);
           }
         });
+        return;
+      }
+      // 豆包流式 TTS：边合成边下发裸 PCM，前端边收边播（首字快）。只有 doubao 走这里。
+      if (u.pathname === '/tts-stream') {
+        const text = (u.searchParams.get('text') || '').trim();
+        const voice = u.searchParams.get('voice') || DEFAULT_VOICE.doubao;
+        const rate = /^[+-]\d{1,3}%$/.test(u.searchParams.get('rate') || '') ? u.searchParams.get('rate') : '';
+        if (!text) { res.statusCode = 400; return res.end('text required'); }
+        try {
+          const key = (await readSecrets()).doubaoKey;
+          await doubaoStreamPCM(res, { voice, text, rate, key });
+        } catch (e) {
+          log('[tts-stream] failed:', e.message);
+          if (!res.headersSent) { res.statusCode = 500; res.end('stream failed: ' + e.message); }
+          else { try { res.end(); } catch {} }
+        }
         return;
       }
       if (u.pathname === '/tts') {
