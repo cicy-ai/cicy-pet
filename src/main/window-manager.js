@@ -60,6 +60,15 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
     async function createPetWindow(data) {
         try {
             if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
+                // 「显示宠物」时窗口可能被藏在屏幕外（Alt+R/藏起来/甩飞都是把窗口移出屏），
+                // 光 focus 看不见 —— 检测到在屏外就拉回默认位置。
+                const { screen } = require('electron');
+                const wa = screen.getPrimaryDisplay().workAreaSize;
+                const b = ctx.petWindow.getBounds();
+                const offscreen = b.x > wa.width - 40 || b.x + b.width < 40 ||
+                                  b.y > wa.height - 40 || b.y + b.height < 40;
+                if (offscreen) ctx.petWindow.setPosition(wa.width - 220, wa.height - 220);
+                ctx.petWindow.show();
                 ctx.petWindow.focus();
                 return { success: true, message: 'already open' };
             }

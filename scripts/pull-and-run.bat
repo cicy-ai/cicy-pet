@@ -26,6 +26,10 @@ if exist cicy-pet\.git (
 echo == 安装依赖（首次较慢，Electron 走 OSS 镜像）==
 call npm install || (echo [X] npm install 失败 ^& pause ^& exit /b 1)
 
+echo == 关掉正在跑的 CiCy Pet（不能出现两个角色）==
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='electron.exe'\" | Where-Object { $_.CommandLine -like '*cicy-pet*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>nul
+timeout /t 2 >nul
+
 echo == 启动 CiCy Pet ==
 call npm start
 

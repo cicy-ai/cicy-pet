@@ -7,12 +7,17 @@ function createTrayManager(ctx, deps) {
     const { Tray, Menu, path, mt, basePath } = deps;
 
     function createTray() {
-        // app-icon.png 是一张 299x304、没有 alpha 通道的角色截图 —— 直接塞给 Tray，
-        // 菜单栏里就是一个不透明的长方形色块。macOS 的托盘图标要 22x22（@2x 44x44）、
-        // 带 alpha，并且标记成 template image，系统才会按菜单栏明暗自动反色。
+        // macOS 的托盘图标要 22x22、带 alpha 的黑色字形并标记 template image，系统按
+        // 菜单栏明暗自动反色；Windows 没有 template 概念，同一张黑字形在任务栏上就是
+        // 一坨黑 —— Windows 用彩色 app-icon（16x16 由系统从 ico/png 里缩）。
         const { nativeImage } = require('electron');
-        const icon = nativeImage.createFromPath(path.join(basePath, 'assets', 'trayTemplate.png'));
-        icon.setTemplateImage(true);
+        let icon;
+        if (process.platform === 'win32') {
+            icon = nativeImage.createFromPath(path.join(basePath, 'assets', 'app-icon.ico'));
+        } else {
+            icon = nativeImage.createFromPath(path.join(basePath, 'assets', 'trayTemplate.png'));
+            icon.setTemplateImage(true);
+        }
         ctx.tray = new Tray(icon);
         ctx.tray.setToolTip('CiCy Pet');
         ctx.tray.on('click', () => {
@@ -38,21 +43,15 @@ function createTrayManager(ctx, deps) {
                     deps.createSettingsWindow();
                 }
             }},
-            { label: hasPet ? mt('tray.hidePet') : mt('tray.showPet'), click: async () => {
-                if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
-                    ctx.petWindow.close();
-                    return;
-                }
-                // 「显示宠物」原来只是把设置窗口弹出来 —— 指望你再去设置里导入一次模型，
-                // 由那条路去触发 create-pet-window。设置界面换掉之后那条路没了，于是点过
-                // 「隐藏宠物」就再也回不来。这里直接把窗口建回来。
-                if (deps.createPetWindow) {
-                    await deps.createPetWindow();
-                } else if (ctx.settingsWindow && !ctx.settingsWindow.isDestroyed()) {
-                    ctx.settingsWindow.show();
-                    ctx.settingsWindow.focus();
-                }
+            // 固定两项，不做「切换」：窗口可能被 Alt+R/甩飞挪到屏幕外，托盘不知道，
+            // 切换式菜单的标签会跟实际状态脱节（这就是「hide 之后 show 不出来」）。
+            // createPetWindow 对活着的窗口会自动拉回屏内并 show。
+            { label: mt('tray.showPet'), click: async () => {
+                if (deps.createPetWindow) await deps.createPetWindow();
                 updateTrayMenu();
+            }},
+            { label: mt('tray.hidePet'), enabled: hasPet, click: () => {
+                if (ctx.petWindow && !ctx.petWindow.isDestroyed()) ctx.petWindow.close();
             }},
             { type: 'separator' },
             { label: mt('tray.quit'), click: () => {
