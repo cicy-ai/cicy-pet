@@ -167,6 +167,26 @@ async function systemVoices() {
   return sayVoices();
 }
 
+// 从 agent 回复里抽出「该读出来的话」：cicy agent 回复形如
+// "[thinking]\n...\n\n[text]\n<真正答复>"。取 [text] 段，去掉 markdown / emoji / 长链接。
+function extractSpoken(raw) {
+  let t = raw || '';
+  const idx = t.lastIndexOf('[text]');
+  if (idx >= 0) {
+    t = t.slice(idx + 6);            // 只要 [text] 之后
+  } else if (/\[thinking\]/.test(t)) {
+    // 有 thinking 但没 text 标记 → 宁可不读，也绝不把思考念出来
+    return '';
+  }
+  return t
+    .replace(/```[\s\S]*?```/g, '')           // 代码块整段删
+    .replace(/https?:\/\/\S+/g, '')           // 链接不读
+    .replace(/[*_`#>~|]/g, '')                // markdown 符号
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}️]/gu, '') // emoji
+    .replace(/\n{2,}/g, '\n').trim()
+    .slice(0, 240);                           // 桌宠只读前 240 字，别念长文
+}
+
 function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {}, getConfig = null }) {
   const rendererDir = path.join(appDir, 'renderer');
   let voicesCache = null;
@@ -267,6 +287,51 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
         return res.end(body);
       }
+      // 大脑桥：把用户的话转给 Sherlly（cicy-code 里的 agent），等它答完取回文字。
+      // 渲染进程不持 token，统一在这里代理。Sherlly 才是能真操作电脑的大脑。
+      if (u.pathname === '/agent' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', async () => {
+          try {
+            const { text } = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+            if (!text) { res.statusCode = 400; return res.end('text required'); }
+            const s = await readSecrets();
+            const pane = s.agentPane || 'w-10242';
+            const base = s.cicyApi || 'http://127.0.0.1:8008';
+            let token = s.cicyToken;
+            if (!token) {   // 回落读 ~/cicy-ai/global.json 的 api_token
+              try { token = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'cicy-ai', 'global.json'), 'utf8')).api_token; } catch {}
+            }
+            const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+            const post = (p, body) => fetch(base + p, { method: 'POST', headers: H, body: JSON.stringify(body) }).then((r) => r.json());
+            // 记下发问前的 turn，用它判断新回复出现
+            let prevTurn = null;
+            try { prevTurn = (await post('/api/tmux/reply_text', { pane_id: pane })).turn_id; } catch {}
+            await post('/api/tmux/send', { pane_id: pane, text });
+            // 轮询直到出现「新 turn 且 completed」（agent 要思考/可能跑工具，给足 90s）
+            const deadline = Date.now() + 90000;
+            let answer = '';
+            while (Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 1200));
+              let rep;
+              try { rep = await post('/api/tmux/reply_text', { pane_id: pane }); } catch { continue; }
+              if (rep && rep.turn_id && rep.turn_id !== prevTurn && rep.status === 'completed') {
+                answer = extractSpoken(rep.text || '');
+                break;
+              }
+            }
+            const body = Buffer.from(JSON.stringify({ text: answer }), 'utf8');
+            noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
+            res.end(body);
+          } catch (e) {
+            log('[agent] failed:', e.message);
+            res.statusCode = 500; res.end('agent failed: ' + e.message);
+          }
+        });
+        return;
+      }
+
       // 语音转文字：POST 16kHz 单声道 wav → 本地 whisper-cli（离线、免 key）→ {text}
       // 模型放 ~/.cache/whisper-cpp/ggml-small.bin（或 WHISPER_MODEL 指定）。
       if (u.pathname === '/stt' && req.method === 'POST') {

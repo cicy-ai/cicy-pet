@@ -838,41 +838,29 @@
       "[甩飞]": () => flingOut(2300, -450),
     };
 
+    // CiCy 的大脑 = Sherlly（cicy-code 里能真操作电脑的 agent）。
+    // 语音识别出的话经 /agent 桥转给 Sherlly，取它的答复读出来。
     async function chatReply(userText) {
-      let conf = {};
-      try { conf = (api && api.loadConfig) ? (await api.loadConfig()) || {} : {}; } catch {}
-      if (!conf.apiKey) {
-        speak("我的大脑还没插钥匙，去设置里把 API key 填上，我就能陪你聊天啦！");
-        return;
-      }
-      chatHistory.push({ role: "user", content: userText });
-      while (chatHistory.length > 12) chatHistory.shift();
       try {
-        const r = await fetch((conf.baseURL || "https://openrouter.ai/api/v1") + "/chat/completions", {
+        const r = await fetch("/agent", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer " + conf.apiKey },
-          body: JSON.stringify({
-            model: conf.modelName || "x-ai/grok-4.1-fast",
-            max_tokens: 200,
-            messages: [{ role: "system", content: CHAT_PERSONA }, ...chatHistory],
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: userText }),
         });
-        const j = await r.json();
-        const reply = ((j.choices && j.choices[0].message.content) || "").trim();
-        if (!reply) throw new Error((j.error && j.error.message) || "空回复");
-        chatHistory.push({ role: "assistant", content: reply });   // 历史里保留标记，模型记得自己做过什么
-        // 执行动作暗号，读出来之前剥掉
-        let spokenReply = reply;
+        if (!r.ok) throw new Error(await r.text());
+        let reply = ((await r.json()).text || "").trim();
+        if (!reply) { speak("嗯……我这会儿没想好怎么答。"); return; }
+        // 动作暗号（若 Sherlly 用了）——读出来之前剥掉并执行
         for (const [tag, act] of Object.entries(ACTION_TAGS)) {
-          if (spokenReply.includes(tag)) {
-            spokenReply = spokenReply.split(tag).join("");
+          if (reply.includes(tag)) {
+            reply = reply.split(tag).join("");
             try { act(); } catch (err) { console.error("[action]", tag, err); }
           }
         }
-        spokenReply = spokenReply.trim();
-        if (spokenReply) speak(spokenReply);
+        reply = reply.trim();
+        if (reply) speak(reply);
       } catch (e) {
-        speak("呜，大脑短路了。");
+        speak("呜，连不上大脑。");
         console.error("[chat]", e);
       }
     }
