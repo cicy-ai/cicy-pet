@@ -358,6 +358,28 @@
         <div class="btns"><button class="b primary" id="saveEmo">保存情绪设置</button><button class="b" id="tryEmo">随机演一个</button></div>
         <span class="hint" id="emoState"></span>
       </div></div></div>
+
+      <!-- 拍摄特效 -->
+      <div class="acc" data-acc="fx">
+        <div class="ic emo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h3l2-2h6l2 2h3v12H4z"/><circle cx="12" cy="13" r="3.5"/></svg></div>
+        <div class="lbl"><b>拍摄特效</b><span>螺旋飞入 · 甩飞 · 剧本台词</span></div>
+        <div class="val">Alt+R / M / X</div>
+        <svg class="chev" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l6 5.5L1 12"/></svg>
+      </div>
+      <div class="panel"><div class="inner"><div class="pad">
+        <div class="btns">
+          <button class="b primary" id="fxFlyin">🌀 螺旋飞入</button>
+          <button class="b" id="fxFling">💨 甩飞</button>
+          <button class="b" id="fxHide">🫥 藏起来</button>
+        </div>
+        <div class="row"><label>拍摄剧本（按顺序说台词）</label>
+          <div class="btns">
+            <button class="b primary" id="fxNext">▶ 下一句台词</button>
+            <button class="b neutral" id="fxReset">↩ 剧本重来</button>
+          </div>
+        </div>
+        <span class="hint" id="fxState">全局快捷键：Alt+R 藏起来（开拍准备）· Alt+M 下一句/叫回 · Alt+X 甩飞。拖住宠物快速一划＝甩飞。</span>
+      </div></div></div>
     </div>
 
     <!-- 外观与角色 -->
@@ -516,6 +538,14 @@
     $("motion").addEventListener("click", () => bus.postMessage({ type: "motion" }));
     $("expr").addEventListener("click", () => bus.postMessage({ type: "expression" }));
 
+    // ---------- 拍摄特效 ----------
+    const fx = (name) => bus.postMessage({ type: "effect", name });
+    $("fxFlyin").addEventListener("click", () => fx("flyin"));
+    $("fxFling").addEventListener("click", () => fx("fling"));
+    $("fxHide").addEventListener("click", () => fx("hide"));
+    $("fxNext").addEventListener("click", () => fx("next"));
+    $("fxReset").addEventListener("click", () => fx("reset"));
+
     // ---------- 跳舞 ----------
     cfg.bpm = cfg.bpm || 110;
     let dancing = false;
@@ -603,6 +633,10 @@
         }
       }
       if (m.type === "moveState") status(m.name ? "正在" + m.label : "动作结束");
+      if (m.type === "scriptState") {
+        $("fxState").textContent = m.text;
+        status(m.text);
+      }
       if (m.type === "danceState") {
         const parts = (m.roles || []).map((r) => ROLE_CN[r] || r).join("、");
         status(m.on ? `跳舞中 · ${m.bpm} BPM · 能动：${parts || "（无可用参数）"}`

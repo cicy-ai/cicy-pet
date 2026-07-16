@@ -637,6 +637,16 @@
           list: Object.entries(MOVES).map(([k, v]) => ({ id: k, label: v.label })),
         });
         reportCaps();   // 设置页问动作时，顺带把表情/动作能力也补报一次
+      } else if (m.type === "effect") {
+        // 设置页「拍摄特效」按钮（和全局快捷键 Alt+R/M/X 走同一套逻辑）
+        const say = (text) => bus.postMessage({ type: "scriptState", text });
+        if (m.name === "flyin") windowFlight();
+        else if (m.name === "fling") flingOut(2300, -450);
+        else if (m.name === "hide") window.petScript.reset().then(() => say("已藏好，等入场（▶ 或 Alt+M）"));
+        else if (m.name === "reset") window.petScript.reset().then(() => say("剧本已重来，已藏好"));
+        else if (m.name === "next") window.petScript.next().then((r) => {
+          say(r === "end" ? "剧本演完了（↩ 重来）" : r === "back" ? "叫回来了" : "台词 " + r);
+        });
       }
     });
 
