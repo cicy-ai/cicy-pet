@@ -452,55 +452,99 @@
     const chatHistory = [];
     let rec = null;
 
-    async function voiceToggle() {
-      if (rec) return voiceStop();
+    // 录音 = 本地留一份（whisper 兜底）+ 同时流式推给 /asr（火山）→ 字幕边说边长。
+    async function voiceBegin() {
+      if (rec) return;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const ctx = new AudioContext({ sampleRate: 16000 });
         const src = ctx.createMediaStreamSource(stream);
         const proc = ctx.createScriptProcessor(4096, 1, 1);
         const bufs = [];
-        rec = { ctx, stream, proc, bufs, lastLoud: performance.now() };
+        const segs = new Map();   // seg → {text, definite}，火山按段累积更新
+        let ws = null;
+        try {
+          ws = new WebSocket(`ws://127.0.0.1:13004/asr`);
+          ws.binaryType = "arraybuffer";
+          ws.onmessage = (ev) => {
+            if (!rec) return;
+            try {
+              const m = JSON.parse(ev.data);
+              if (m.type === "transcript") {
+                segs.set(m.seg, { text: m.text, definite: m.definite });
+                const live = [...segs.values()].map((s) => s.text).join("");
+                if (live) bubble("🎤 " + live, true);   // 边说边出字幕
+              }
+            } catch {}
+          };
+        } catch {}
+        rec = { ctx, stream, proc, bufs, segs, ws };
         proc.onaudioprocess = (e) => {
           if (!rec) return;
           const d = e.inputBuffer.getChannelData(0);
           bufs.push(new Float32Array(d));
-          let s = 0;
-          for (let i = 0; i < d.length; i += 16) s += d[i] * d[i];
-          if (Math.sqrt(s / (d.length / 16)) > 0.02) rec.lastLoud = performance.now();
-          else if (performance.now() - rec.lastLoud > 1500 && bufs.length > 8) voiceStop(); // 静音自动收
+          if (ws && ws.readyState === 1) {   // Float32 → PCM16 流出去
+            const p = new Int16Array(d.length);
+            for (let i = 0; i < d.length; i++) p[i] = Math.max(-1, Math.min(1, d[i])) * 32767;
+            ws.send(p.buffer);
+          }
         };
         src.connect(proc);
         proc.connect(ctx.destination);
-        bubble("🎤 在听……（说完停一下自动发送）", true);
+        bubble("🎤 在听……", true);
       } catch (e) {
+        rec = null;
         bubble("麦克风打不开：" + (e.message || e), true);
         setTimeout(() => bubble("", false), 3000);
       }
     }
 
-    async function voiceStop() {
+    async function voiceFinish() {
       if (!rec) return;
-      const { ctx, stream, proc, bufs } = rec;
+      const { ctx, stream, proc, bufs, segs, ws } = rec;
       rec = null;
       try { proc.disconnect(); stream.getTracks().forEach((t) => t.stop()); ctx.close(); } catch {}
       const n = bufs.reduce((s, b) => s + b.length, 0);
-      if (n < 16000 * 0.4) { bubble("", false); return; }   // 不到 0.4 秒当误触
-      bubble("🧠 听懂中……", true);
-      try {
-        const res = await fetch("/stt", { method: "POST", body: encodeWav(bufs, n, 16000) });
-        if (!res.ok) throw new Error(await res.text());
-        const { text } = await res.json();
-        const clean = (text || "").replace(/\[.*?\]|\(.*?\)/g, "").trim();
-        if (!clean) { bubble("没听清，再说一遍？", true); setTimeout(() => bubble("", false), 2500); return; }
-        dataChirp();   // 「收到指令」高科技确认音——填掉 AI 思考的空档
-        bubble("你：" + clean, true);
-        await chatReply(clean);
-      } catch (e) {
-        bubble("听不懂：" + String(e.message || e).slice(0, 60), true);
-        setTimeout(() => bubble("", false), 3000);
+      if (n < 16000 * 0.35) {   // 太短当误触
+        try { ws?.close(); } catch {}
+        bubble("", false); return;
       }
+      // 催火山出定稿，最多等 1.2s 收尾帧
+      let text = "";
+      if (ws && ws.readyState === 1) {
+        try { ws.send(JSON.stringify({ type: "flush" })); } catch {}
+        await new Promise((done) => {
+          const t = setTimeout(done, 1200);
+          ws.onmessage = (ev) => {
+            try {
+              const m = JSON.parse(ev.data);
+              if (m.type === "transcript") {
+                segs.set(m.seg, { text: m.text, definite: m.definite });
+                if (m.definite) { clearTimeout(t); done(); }
+              }
+            } catch {}
+          };
+          ws.onclose = () => { clearTimeout(t); done(); };
+        });
+        text = [...segs.values()].map((s) => s.text).join("").trim();
+      }
+      try { ws?.close(); } catch {}
+      // 流式没出结果（没配 key/断网/被拒）→ 本地 whisper 兜底
+      if (!text) {
+        bubble("🧠 听懂中……", true);
+        try {
+          const res = await fetch("/stt", { method: "POST", body: encodeWav(bufs, n, 16000) });
+          if (res.ok) text = ((await res.json()).text || "").replace(/\[.*?\]|\(.*?\)/g, "").trim();
+        } catch {}
+      }
+      if (!text) { bubble("没听清，再说一遍？", true); setTimeout(() => bubble("", false), 2500); return; }
+      dataChirp();   // 「收到指令」数据雨——填掉 AI 思考的空档
+      bubble("你：" + text, true);
+      await chatReply(text);
     }
+
+    // 兼容旧入口（快捷键 Alt+Space/Alt+V 还是可用的）：按一下开始，再按一下结束
+    async function voiceToggle() { return rec ? voiceFinish() : voiceBegin(); }
 
     function encodeWav(bufs, n, sr) {
       const w = new DataView(new ArrayBuffer(44 + n * 2));
@@ -515,44 +559,56 @@
       return new Blob([w.buffer], { type: "audio/wav" });
     }
 
-    // 高科技「数据滴滴」确认音（黑客帝国字幕弹出那味）：一串高频短促方波 blip
-    // （音高下行+伪随机跳动）+ 一层窄带数据嘶声 + 收尾上扬「boop」。全合成，零素材。
+    // 黑客帝国「字幕浮现」声：玻璃质感的数据雨——一片高频正弦小水滴
+    // （音高各异、前密后疏、每滴微微下滑），全部送进反馈延迟做空间回声尾巴，
+    // 底下垫一层从高往低扫的窄带气声（字幕浮现的「嘘——」）。全合成，零素材。
     function dataChirp() {
       audioCtx = audioCtx || new AudioContext();
       audioCtx.resume();
       const t0 = audioCtx.currentTime, out = audioCtx.destination;
-      for (let i = 0; i < 8; i++) {
-        const t = t0 + i * 0.042;
+
+      // 空间感：90ms 反馈延迟 + 环内低通（回声越来越闷，像大空间）
+      const bus = audioCtx.createGain(); bus.gain.value = 1;
+      const dly = audioCtx.createDelay(); dly.delayTime.value = 0.09;
+      const fb = audioCtx.createGain(); fb.gain.value = 0.4;
+      const lp = audioCtx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 5500;
+      const wet = audioCtx.createGain(); wet.gain.value = 0.5;
+      bus.connect(out);
+      bus.connect(dly); dly.connect(lp); lp.connect(fb); fb.connect(dly);
+      dly.connect(wet); wet.connect(out);
+
+      // 玻璃雨滴 ×26
+      const N = 26;
+      for (let i = 0; i < N; i++) {
+        const when = t0 + Math.pow(i / N, 1.35) * 0.72;   // 前密后疏
+        const f0 = 3200 + Math.random() * 4800;
         const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-        o.type = "square";
-        o.frequency.setValueAtTime(2400 - i * 130 + (i % 3) * 220, t);
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.16, t + 0.004);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.024);
-        o.connect(g).connect(out);
-        o.start(t); o.stop(t + 0.03);
+        o.type = "sine";
+        o.frequency.setValueAtTime(f0, when);
+        o.frequency.exponentialRampToValueAtTime(f0 * 0.72, when + 0.09);
+        g.gain.setValueAtTime(0.0001, when);
+        g.gain.exponentialRampToValueAtTime(0.045 + Math.random() * 0.055, when + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, when + 0.1);
+        o.connect(g).connect(bus);
+        o.start(when); o.stop(when + 0.12);
       }
-      const len = Math.floor(audioCtx.sampleRate * 0.32);
+
+      // 底衬气声：8.5k → 2.8k 往下扫
+      const len = Math.floor(audioCtx.sampleRate * 0.7);
       const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
       const d = buf.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       const n = audioCtx.createBufferSource(); n.buffer = buf;
       const bp = audioCtx.createBiquadFilter();
-      bp.type = "bandpass"; bp.frequency.value = 5200; bp.Q.value = 3;
+      bp.type = "bandpass"; bp.Q.value = 2.2;
+      bp.frequency.setValueAtTime(8500, t0);
+      bp.frequency.exponentialRampToValueAtTime(2800, t0 + 0.68);
       const ng = audioCtx.createGain();
-      ng.gain.setValueAtTime(0.05, t0);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
-      n.connect(bp).connect(ng).connect(out);
-      n.start(t0); n.stop(t0 + 0.32);
-      const b = audioCtx.createOscillator(), bg = audioCtx.createGain();
-      b.type = "sine";
-      b.frequency.setValueAtTime(680, t0 + 0.36);
-      b.frequency.exponentialRampToValueAtTime(920, t0 + 0.42);
-      bg.gain.setValueAtTime(0.0001, t0 + 0.36);
-      bg.gain.exponentialRampToValueAtTime(0.28, t0 + 0.38);
-      bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
-      b.connect(bg).connect(out);
-      b.start(t0 + 0.36); b.stop(t0 + 0.52);
+      ng.gain.setValueAtTime(0.03, t0);
+      ng.gain.exponentialRampToValueAtTime(0.08, t0 + 0.18);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
+      n.connect(bp).connect(ng).connect(bus);
+      n.start(t0); n.stop(t0 + 0.72);
     }
 
     async function chatReply(userText) {
@@ -902,19 +958,36 @@
     // 窗口是 frameless 的，没有标题栏可拖。用 Live2DPet preload 暴露的
     // getCursorPosition / getWindowBounds / setWindowPosition 自己实现：
     // 按下时记住「光标 - 窗口左上角」的偏移，移动时保持这个偏移。
+    // 手势三分：按下后 → 动了(>8px)=拖动；按住不动 0.4s=按住说话；快速松开=普通点按。
     let dragging = false, offX = 0, offY = 0;
     let trail = [];   // 拖动轨迹（判定「甩出去」用的速度采样）
+    let pressArmed = false, pressX = 0, pressY = 0, pttTimer = 0, pttHolding = false;
 
     window.addEventListener("mousedown", async (e) => {
       if (e.button !== 0 || !api) return;
       const [cur, b] = await Promise.all([api.getCursorPosition(), api.getWindowBounds()]);
       offX = cur.x - b.x;
       offY = cur.y - b.y;
+      pressX = cur.x; pressY = cur.y;
       trail = [];
-      dragging = true;
+      pressArmed = true;      // 先按兵不动，看是拖还是长按
+      clearTimeout(pttTimer);
+      pttTimer = setTimeout(() => {
+        if (!pressArmed || dragging) return;
+        pressArmed = false;
+        pttHolding = true;    // 长按成立 → 按住说话
+        voiceBegin();
+      }, 400);
     });
 
     window.addEventListener("mouseup", () => {
+      clearTimeout(pttTimer);
+      pressArmed = false;
+      if (pttHolding) {       // 松手 = 说完，立即定稿发送
+        pttHolding = false;
+        voiceFinish();
+        return;
+      }
       dragging = false;
       // 甩出判定：取最近 ~120ms 的轨迹算速度，够快就顺着方向飞出屏幕
       const now = performance.now();
@@ -932,8 +1005,13 @@
     // 用 rAF 拉，而不是监听 mousemove —— 鼠标一旦跑出窗口（拖快了就会），
     // 渲染进程就收不到 mousemove 了，窗口会「掉队」。轮询光标位置没这个问题。
     (function pump() {
-      if (dragging && api) {
+      if ((dragging || pressArmed) && api) {
         api.getCursorPosition().then((cur) => {
+          if (pressArmed && Math.hypot(cur.x - pressX, cur.y - pressY) > 8) {
+            pressArmed = false;          // 动了 → 是拖动，不是长按
+            clearTimeout(pttTimer);
+            dragging = true;
+          }
           if (!dragging) return;
           api.setWindowPosition(Math.round(cur.x - offX), Math.round(cur.y - offY));
           trail.push({ t: performance.now(), x: cur.x, y: cur.y });

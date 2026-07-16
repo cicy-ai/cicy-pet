@@ -329,6 +329,32 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     }
   });
 
+  // ── /asr：流式字幕桥 ─────────────────────────────────────────────────────
+  // 渲染端 WS 送 16k PCM16 小块进来，这里桥到火山流式 ASR，字幕增量推回去。
+  // 浏览器 WebSocket 发不了自定义鉴权头，所以必须在这儿代理一层。
+  try {
+    const { WebSocketServer } = require('ws');
+    const { createVolcAsrSession } = require('./volc-asr');
+    const wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
+    wss.on('connection', async (ws) => {
+      const key = (await readSecrets()).volcAsrKey || (await readSecrets()).doubaoKey;
+      if (!key) { ws.send(JSON.stringify({ type: 'error', message: '未配置豆包/火山 key' })); ws.close(); return; }
+      const session = createVolcAsrSession({ apiKey: key },
+        (text, definite, seg) => { try { ws.send(JSON.stringify({ type: 'transcript', text, definite, seg })); } catch {} },
+        (message) => { try { ws.send(JSON.stringify({ type: 'error', message })); } catch {} },
+        () => { try { ws.close(); } catch {} });
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) return session.sendAudio(data);
+        try { if (JSON.parse(data.toString()).type === 'flush') session.flush(); } catch {}
+      });
+      ws.on('close', () => session.close());
+    });
+    server.on('upgrade', (req, socket, head) => {
+      if (new URL(req.url, 'http://x').pathname !== '/asr') { socket.destroy(); return; }
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    });
+  } catch (e) { log('[asr] streaming bridge unavailable:', e.message); }
+
   return new Promise((resolve, reject) => {
     server.on('error', reject);
     server.listen(port, '127.0.0.1', () => {
