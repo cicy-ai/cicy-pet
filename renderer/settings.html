@@ -407,7 +407,15 @@
       </div>
       <div class="panel"><div class="inner"><div class="pad">
         <div class="row"><div class="slider-head"><span>大小</span><b><span id="sizeVal">340</span> px</b></div>
-          <input type="range" id="size" min="180" max="700" step="10" /></div>
+          <input type="range" id="size" min="180" max="1080" step="10" /></div>
+        <div class="row"><label>快捷尺寸（选过的会记住，下次启动直接用）</label>
+          <div class="btns" id="sizePresets">
+            <button class="b" data-size="240">小 240</button>
+            <button class="b" data-size="340">标准 340</button>
+            <button class="b" data-size="480">大 480</button>
+            <button class="b" data-size="640">特大 640</button>
+            <button class="b" data-size="900">巨无霸 900</button>
+          </div></div>
         <div class="btns"><button class="b" id="reset">回到右下角</button><button class="b neutral" id="hide">隐藏宠物</button></div>
         <span class="sub">宠物窗口可以直接用鼠标拖动；右键弹菜单。</span>
       </div></div></div>
@@ -425,7 +433,7 @@
 
     const CFG_KEY = "pet_config";
     const cfg = Object.assign(
-      { model: "models/Hiyori/Hiyori.model3.json", engine: "edge", voice: "zh-CN-XiaoxiaoNeural", size: 340 },
+      { model: "models/Hiyori/Hiyori.model3.json", engine: "edge", voice: "zh-CN-XiaoyiNeural", size: 340 },
       JSON.parse(localStorage.getItem(CFG_KEY) || "{}")
     );
 
@@ -648,12 +656,18 @@
     $("size").value = cfg.size;
     $("sizeVal").textContent = cfg.size;
     setVal("win", cfg.size + " px");
-    $("size").addEventListener("input", (e) => {
-      cfg.size = +e.target.value;
+    function applySize(px) {
+      cfg.size = +px;
+      $("size").value = cfg.size;
       $("sizeVal").textContent = cfg.size;
       setVal("win", cfg.size + " px");
       api?.setWindowSize?.(cfg.size, Math.round(cfg.size * 1.25));
       save();
+    }
+    $("size").addEventListener("input", (e) => applySize(e.target.value));
+    $("sizePresets").addEventListener("click", (e) => {
+      const px = e.target.dataset && e.target.dataset.size;
+      if (px) applySize(px);
     });
 
     $("reset").addEventListener("click", async () => {
