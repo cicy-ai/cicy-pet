@@ -130,18 +130,38 @@ app.whenReady().then(async () => {
     // Option+R = 开拍准备（Mao 藏到屏幕外）；Option+M = 下一句台词。
     // 用 executeJavaScript 直接驱动 pet.html 的 window.petScript，不动 preload。
     const { globalShortcut } = require('electron');
-    const petEval = (code) => {
-        if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
-            ctx.petWindow.webContents.executeJavaScript(code).catch(() => {});
+    const petEval = async (code) => {
+        // 宠物窗口可能被托盘「隐藏宠物」关掉了——快捷键按下时先把她拉回来再执行，
+        // 否则按了没反应还查无此症。重建后等模型加载完（ready 事件太早，粗等 4s）。
+        if (!ctx.petWindow || ctx.petWindow.isDestroyed()) {
+            try { await createPetWindow(); } catch { return; }
+            setTimeout(() => {
+                if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
+                    ctx.petWindow.webContents.executeJavaScript(code).catch(() => {});
+                }
+            }, 4000);
+            return;
         }
+        ctx.petWindow.webContents.executeJavaScript(code).catch(() => {});
     };
-    globalShortcut.register('Alt+R', () => petEval('window.petScript && window.petScript.reset()'));
-    globalShortcut.register('Alt+M', () => petEval('window.petScript && window.petScript.next()'));
+    // register 返回 false = 被其他应用占用（Alt+Space 常被 Alfred/Raycast 抢）——必须留日志，
+    // 否则「按了没反应」根本查不到原因。
+    const reg = (accel, fn) => {
+        let ok = false;
+        try { ok = globalShortcut.register(accel, fn); } catch (e) { console.error('[shortcut]', accel, e.message); }
+        console.log('[shortcut]', accel, ok ? 'ok' : 'FAILED（被其他应用占用？）');
+        return ok;
+    };
+    reg('Alt+R', () => petEval('window.petScript && window.petScript.reset()'));
+    reg('Alt+M', () => petEval('window.petScript && window.petScript.next()'));
     // Alt+X = 一键甩飞（拍「手一滑她就没了」的镜头，用触控板甩不好拍时的保险）
-    globalShortcut.register('Alt+X', () => petEval('window.pet && window.pet.flingOut && window.pet.flingOut()'));
-    // Alt+Space = 语音对话：按一下开始录音，再按一下（或静音 1.5s）结束 → whisper → AI → 开口回答。
+    reg('Alt+X', () => petEval('window.pet && window.pet.flingOut && window.pet.flingOut()'));
+    // 语音对话：按一下开始录音，再按一下（或静音 1.5s）结束 → whisper → AI → 开口回答。
     // （全局快捷键收不到 keyup，「长按说话」做不了，退而求其次用「按一下/自动收音」。）
-    globalShortcut.register('Alt+Space', () => petEval('window.petVoice && window.petVoice.toggle()'));
+    // Alt+Space 容易撞车，注册不上就只剩 Alt+V —— 两个都注册，哪个好使用哪个。
+    const voiceFn = () => petEval('window.petVoice && window.petVoice.toggle()');
+    reg('Alt+Space', voiceFn);
+    reg('Alt+V', voiceFn);
     // 语音对话要用麦克风：mac 首次要向系统讨权限（记住后不再弹）
     if (process.platform === 'darwin') {
         try { require('electron').systemPreferences.askForMediaAccess('microphone').catch(() => {}); } catch {}
