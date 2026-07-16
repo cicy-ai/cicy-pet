@@ -13,3 +13,4 @@ renderer/.tts-cache/
 # Live2D 模型：授权 §4.1.1 禁止再分发，不进仓库、不进公开 Release。
 # 本地自用可保留在磁盘（个人/小规模使用是允许的）。见 NOTICE。
 renderer/models/
+secrets.json

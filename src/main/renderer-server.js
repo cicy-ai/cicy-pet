@@ -171,12 +171,15 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   const rendererDir = path.join(appDir, 'renderer');
   let voicesCache = null;
 
-  // doubaoKey 之类的密钥存 config.json，由宿主注入读取器；没有注入时回落读 appDir/config.json
+  // 语音密钥放独立的 secrets.json（gitignore）——不能放 config.json：
+  // configManager 的保存周期会按字段白名单重写整个文件，白名单外的字段直接被丢。
   async function readSecrets() {
+    let out = {};
+    try { if (getConfig) out = (await getConfig()) || {}; } catch {}
     try {
-      if (getConfig) return (await getConfig()) || {};
-      return JSON.parse(fs.readFileSync(path.join(appDir, 'config.json'), 'utf8'));
-    } catch { return {}; }
+      Object.assign(out, JSON.parse(fs.readFileSync(path.join(appDir, 'secrets.json'), 'utf8')));
+    } catch {}
+    return out;
   }
 
   async function allVoices() {                // 懒加载：edge 列表要联网，慢起来十几秒

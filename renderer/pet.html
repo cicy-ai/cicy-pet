@@ -516,7 +516,10 @@
     const CHAT_PERSONA =
       "你是CiCy（读作 say say），住在用户电脑里的调皮小精灵桌宠。" +
       "用中文口语回答，简短（一两句话，30字以内），活泼调皮爱开玩笑，偶尔用语气词（嘿嘿/哇/诶）。" +
-      "不要用 markdown、列表或表情符号。";
+      "不要用 markdown、列表或表情符号。" +
+      "你有身体，能真的做动作：需要时在回复末尾加动作标记（用户听不到标记）。" +
+      "可用标记：[跳舞]（放音乐并跳舞）、[停舞]（停止跳舞和音乐）、[转圈]、[飞入]（飞回屏幕中心）、[甩飞]（自己飞出屏幕）。" +
+      "用户让你跳舞就加[跳舞]，让你停就加[停舞]。只在用户明确要求动作时才用标记。";
     const chatHistory = [];
     let rec = null;
 
@@ -568,6 +571,7 @@
         rec = { ctx, stream, proc, bufs, segs, ws, byHold: !!byHold };
         ensureAura();
         auraOn = true;                       // 脚下光环亮起
+        duckMusic(true);                     // 派对音乐压低——别让 ASR 听一嘴动次打次
         proc.onaudioprocess = (e) => {
           if (!rec) return;
           const d = e.inputBuffer.getChannelData(0);
@@ -603,6 +607,7 @@
         return;
       }
       auraOn = false;
+      duckMusic(false);
       const { ctx, proc, ws } = rec;
       rec = null;
       try { proc.disconnect(); ctx.close(); } catch {}
@@ -617,6 +622,7 @@
         return;
       }
       auraOn = false;                        // 光环渐隐
+      duckMusic(false);
       const { ctx, proc, bufs, segs, ws } = rec;
       rec = null;
       try { proc.disconnect(); ctx.close(); } catch {}
@@ -727,6 +733,111 @@
       n.start(t0); n.stop(t0 + 0.72);
     }
 
+    // ---------- 派对音乐 ----------
+    // WebAudio 合成的电子鼓点（底鼓/军鼓/踩镲/贝斯线），BPM 和跳舞编排同源 → 天然卡拍。
+    // 零素材零版权。lookahead 调度防漂移；录音时自动压低（不然 ASR 听到的全是动次打次）。
+    let party = null, musicGain = null;
+    const PARTY_BPM = 118;
+
+    function startMusic(bpm) {
+      stopMusic();
+      audioCtx = audioCtx || new AudioContext();
+      audioCtx.resume();
+      musicGain = audioCtx.createGain();
+      musicGain.gain.value = 0.9;
+      musicGain.connect(audioCtx.destination);
+      const spb = 60 / bpm;
+      party = { bpm, next: audioCtx.currentTime + 0.1, bar: 0, timer: 0 };
+      const ROOTS = [110, 87.3, 65.4, 98];          // Am F C G 循环
+      const bass8 = [0, 0, 12, 0, 7, 0, 12, 7];     // 半音偏移的八分音符律动
+      const scheduleBar = (t0, bar) => {
+        const root = ROOTS[bar % 4];
+        for (let b = 0; b < 4; b++) {
+          const t = t0 + b * spb;
+          // 底鼓：正弦快速下坠
+          const k = audioCtx.createOscillator(), kg = audioCtx.createGain();
+          k.frequency.setValueAtTime(150, t);
+          k.frequency.exponentialRampToValueAtTime(45, t + 0.1);
+          kg.gain.setValueAtTime(0.9, t);
+          kg.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+          k.connect(kg).connect(musicGain); k.start(t); k.stop(t + 0.15);
+          // 踩镲：反拍高频噪声
+          const hl = Math.floor(audioCtx.sampleRate * 0.04);
+          const hb = audioCtx.createBuffer(1, hl, audioCtx.sampleRate);
+          const hd = hb.getChannelData(0);
+          for (let i = 0; i < hl; i++) hd[i] = Math.random() * 2 - 1;
+          const h = audioCtx.createBufferSource(); h.buffer = hb;
+          const hp = audioCtx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 8000;
+          const hg = audioCtx.createGain();
+          hg.gain.setValueAtTime(0.14, t + spb / 2);
+          hg.gain.exponentialRampToValueAtTime(0.001, t + spb / 2 + 0.04);
+          h.connect(hp).connect(hg).connect(musicGain); h.start(t + spb / 2); h.stop(t + spb / 2 + 0.05);
+          // 军鼓：2、4 拍
+          if (b === 1 || b === 3) {
+            const sl = Math.floor(audioCtx.sampleRate * 0.09);
+            const sb = audioCtx.createBuffer(1, sl, audioCtx.sampleRate);
+            const sd = sb.getChannelData(0);
+            for (let i = 0; i < sl; i++) sd[i] = Math.random() * 2 - 1;
+            const sn = audioCtx.createBufferSource(); sn.buffer = sb;
+            const sf = audioCtx.createBiquadFilter(); sf.type = "bandpass"; sf.frequency.value = 1900; sf.Q.value = 0.8;
+            const sg = audioCtx.createGain();
+            sg.gain.setValueAtTime(0.35, t);
+            sg.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+            sn.connect(sf).connect(sg).connect(musicGain); sn.start(t); sn.stop(t + 0.1);
+          }
+          // 贝斯：八分音符锯齿波 + 低通
+          for (const half of [0, 1]) {
+            const idx = b * 2 + half, semi = bass8[idx];
+            const bt = t + half * spb / 2;
+            const bo = audioCtx.createOscillator(), bg2 = audioCtx.createGain();
+            bo.type = "sawtooth";
+            bo.frequency.setValueAtTime(root * Math.pow(2, semi / 12), bt);
+            const bf = audioCtx.createBiquadFilter(); bf.type = "lowpass"; bf.frequency.value = 500;
+            bg2.gain.setValueAtTime(0.13, bt);
+            bg2.gain.exponentialRampToValueAtTime(0.001, bt + spb * 0.42);
+            bo.connect(bf).connect(bg2).connect(musicGain); bo.start(bt); bo.stop(bt + spb * 0.45);
+          }
+        }
+      };
+      (function pumpMusic() {
+        if (!party) return;
+        while (party.next < audioCtx.currentTime + 0.6) {
+          scheduleBar(party.next, party.bar++);
+          party.next += spb * 4;
+        }
+        party.timer = setTimeout(pumpMusic, 200);
+      })();
+    }
+
+    function stopMusic() {
+      if (!party) return;
+      clearTimeout(party.timer);
+      party = null;
+      if (musicGain) {   // 淡出收场，不咔哒
+        try {
+          musicGain.gain.setValueAtTime(musicGain.gain.value, audioCtx.currentTime);
+          musicGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
+          const g = musicGain;
+          setTimeout(() => { try { g.disconnect(); } catch {} }, 600);
+        } catch {}
+        musicGain = null;
+      }
+    }
+    function duckMusic(on) {
+      if (!musicGain) return;
+      try { musicGain.gain.linearRampToValueAtTime(on ? 0.06 : 0.9, audioCtx.currentTime + 0.2); } catch {}
+    }
+
+    // ---------- 动作暗号 ----------
+    // 大脑在回复里夹标记（读出来之前剥掉），CiCy 据此真的做动作。
+    const ACTION_TAGS = {
+      "[跳舞]": () => { startMusic(PARTY_BPM); setDance(true, PARTY_BPM); },
+      "[停舞]": () => { setDance(false); stopMusic(); },
+      "[转圈]": () => playMove("spin"),
+      "[飞入]": () => windowFlight(),
+      "[甩飞]": () => flingOut(2300, -450),
+    };
+
     async function chatReply(userText) {
       let conf = {};
       try { conf = (api && api.loadConfig) ? (await api.loadConfig()) || {} : {}; } catch {}
@@ -749,8 +860,17 @@
         const j = await r.json();
         const reply = ((j.choices && j.choices[0].message.content) || "").trim();
         if (!reply) throw new Error((j.error && j.error.message) || "空回复");
-        chatHistory.push({ role: "assistant", content: reply });
-        speak(reply);
+        chatHistory.push({ role: "assistant", content: reply });   // 历史里保留标记，模型记得自己做过什么
+        // 执行动作暗号，读出来之前剥掉
+        let spokenReply = reply;
+        for (const [tag, act] of Object.entries(ACTION_TAGS)) {
+          if (spokenReply.includes(tag)) {
+            spokenReply = spokenReply.split(tag).join("");
+            try { act(); } catch (err) { console.error("[action]", tag, err); }
+          }
+        }
+        spokenReply = spokenReply.trim();
+        if (spokenReply) speak(spokenReply);
       } catch (e) {
         speak("呜，大脑短路了。");
         console.error("[chat]", e);
