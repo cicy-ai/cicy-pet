@@ -493,6 +493,7 @@
         const { text } = await res.json();
         const clean = (text || "").replace(/\[.*?\]|\(.*?\)/g, "").trim();
         if (!clean) { bubble("没听清，再说一遍？", true); setTimeout(() => bubble("", false), 2500); return; }
+        dataChirp();   // 「收到指令」高科技确认音——填掉 AI 思考的空档
         bubble("你：" + clean, true);
         await chatReply(clean);
       } catch (e) {
@@ -512,6 +513,46 @@
       for (const b of bufs) for (let i = 0; i < b.length; i++, o += 2)
         w.setInt16(o, Math.max(-1, Math.min(1, b[i])) * 32767, true);
       return new Blob([w.buffer], { type: "audio/wav" });
+    }
+
+    // 高科技「数据滴滴」确认音（黑客帝国字幕弹出那味）：一串高频短促方波 blip
+    // （音高下行+伪随机跳动）+ 一层窄带数据嘶声 + 收尾上扬「boop」。全合成，零素材。
+    function dataChirp() {
+      audioCtx = audioCtx || new AudioContext();
+      audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      for (let i = 0; i < 8; i++) {
+        const t = t0 + i * 0.042;
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = "square";
+        o.frequency.setValueAtTime(2400 - i * 130 + (i % 3) * 220, t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.16, t + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.024);
+        o.connect(g).connect(out);
+        o.start(t); o.stop(t + 0.03);
+      }
+      const len = Math.floor(audioCtx.sampleRate * 0.32);
+      const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const n = audioCtx.createBufferSource(); n.buffer = buf;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = "bandpass"; bp.frequency.value = 5200; bp.Q.value = 3;
+      const ng = audioCtx.createGain();
+      ng.gain.setValueAtTime(0.05, t0);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+      n.connect(bp).connect(ng).connect(out);
+      n.start(t0); n.stop(t0 + 0.32);
+      const b = audioCtx.createOscillator(), bg = audioCtx.createGain();
+      b.type = "sine";
+      b.frequency.setValueAtTime(680, t0 + 0.36);
+      b.frequency.exponentialRampToValueAtTime(920, t0 + 0.42);
+      bg.gain.setValueAtTime(0.0001, t0 + 0.36);
+      bg.gain.exponentialRampToValueAtTime(0.28, t0 + 0.38);
+      bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+      b.connect(bg).connect(out);
+      b.start(t0 + 0.36); b.stop(t0 + 0.52);
     }
 
     async function chatReply(userText) {
@@ -1053,7 +1094,7 @@
 
     // 外部驱动用：pet.speak("…") / pet.motion()
     window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => windowFlight(),
-                   flingOut: () => flingOut(2300, -450), get model() { return model; } };
+                   flingOut: () => flingOut(2300, -450), chirp: () => dataChirp(), get model() { return model; } };
   </script>
 </body>
 
