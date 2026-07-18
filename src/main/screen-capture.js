@@ -81,7 +81,18 @@ function registerScreenCapture(ctx, ipcMain, deps) {
         }
     });
 
+    // active-win 的原生二进制每次运行都会向 macOS 讨辅助功能权限——settings.html 里的旧
+    // DesktopPetSystem 每秒轮询一次,权限没给就每秒弹一次「CiCy Desktop 想控制这台电脑」。
+    // 闸门:未授权(false = 只查不弹)直接返回失败,绝不触发弹窗;用户真要用这功能,
+    // 去系统设置手动授权后自动恢复。
+    function axTrusted() {
+        if (process.platform !== 'darwin') return true;
+        try { return require('electron').systemPreferences.isTrustedAccessibilityClient(false); }
+        catch { return false; }
+    }
+
     ipcMain.handle('get-active-window', async () => {
+        if (!axTrusted()) return { success: false, error: 'accessibility not granted' };
         try {
             const activeWin = (await import('active-win')).default;
             const result = await activeWin();
@@ -93,6 +104,7 @@ function registerScreenCapture(ctx, ipcMain, deps) {
     });
 
     ipcMain.handle('get-open-windows', async () => {
+        if (!axTrusted()) return { success: false, error: 'accessibility not granted' };
         try {
             const { getOpenWindows } = await import('active-win');
             const windows = await getOpenWindows();
