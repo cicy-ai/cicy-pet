@@ -487,7 +487,9 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
             //   ① 先让当前设备「离开」(飞出去) ② 等她飞走了 ③ 再让目标设备「到达」(飞进来)。
             if (cmd === 'goto' && arg) {
               const from = presence.client, target = String(arg);
-              presence = { client: target, platform: onlineClients().get(target) || 'unknown' };
+              // 平台查不到(目标 SSE 恰在重连)就用 id 前缀兜底(phone-fh → phone),
+              // 否则 platform=unknown 会让后续同平台过继失灵
+              presence = { client: target, platform: onlineClients().get(target) || target.split('-')[0] || 'unknown' };
               savePresence();
               if (from === target) { bcast({ cmd: 'arrive', arg: target }); }   // 原地召回,直接现身
               else {
