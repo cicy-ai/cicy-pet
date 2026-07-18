@@ -111,20 +111,39 @@
     async function arrive() {
       if (present) return;
       present = true;
-      if (window.__model) window.__model.visible = true;
+      const m = window.__model;
+      if (m) { m.visible = true; m.alpha = 1; }        // 复位(离开时淡到 0 过)
       const ld = document.getElementById("loading"); if (ld) ld.classList.add("hidden");
       if (typeof reflectLoc === "function") reflectLoc();
       if (window.electronAPI) { try { await windowFlight("我来啦——！", typeof landingSpot === "function" ? landingSpot() : undefined); } catch { playMove("flyin"); speak("我来啦——！"); } }
       else { playMove("flyin"); setTimeout(() => speak("我来" + (DEVICE_NAME[DEVICE] || "") + "啦——！"), 300); }
     }
-    // 她离开这台设备:甩出屏 + 藏起形象(去别处了)
+    // 她离开这台设备:桌面=甩出屏;手机=画布内翻滚淡出。都要「马上」开始消失。
     function leave() {
       if (!present) return;
       present = false;
       try { stopSpeaking(); } catch {}
-      try { flingOut(2300, -450); } catch {}
-      setTimeout(() => { if (window.__model && !present) window.__model.visible = false; }, 1400);
+      if (window.electronAPI) {
+        try { flingOut(2300, -450); } catch {}
+        setTimeout(() => { if (window.__model && !present) window.__model.visible = false; }, 1400);
+      } else {
+        petFlyOffCanvas();   // 手机:立刻翻滚+飞出+淡出
+      }
       if (typeof reflectLoc === "function") reflectLoc();
+    }
+    // 手机版「消失」:模型在画布里翻滚、往上飞、同时淡出,~0.7s 后藏起并复位(下次 arrive 重现)。
+    function petFlyOffCanvas() {
+      const m = window.__model;
+      if (!m) return;
+      try { playMove("tumble"); } catch {}
+      const x0 = m.x, y0 = m.y, t0 = performance.now(), DUR = 700;
+      (function step() {
+        if (present) { m.alpha = 1; m.x = x0; m.y = y0; return; }   // 中途又被召回
+        const p = Math.min(1, (performance.now() - t0) / DUR);
+        m.x = x0 + p * 240; m.y = y0 - p * 200; m.alpha = 1 - p;
+        if (p < 1) requestAnimationFrame(step);
+        else { m.visible = false; m.alpha = 1; m.x = x0; m.y = y0; }
+      })();
     }
 
     // 配置：URL 参数 > localStorage > 默认。settings.html 写 localStorage + 广播，
