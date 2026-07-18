@@ -2012,8 +2012,9 @@
         try { m = JSON.parse(ev.data); } catch { return; }
         const arg = m.arg;
         try {
-          // —— 漫游:goto<设备> 让她在设备间搬家。目标飞入、其余飞出 ——
-          if (m.cmd === "goto") { (String(arg) === DEVICE) ? arrive() : leave(); return; }
+          // —— 漫游接力:服务器把 goto 拆成 leave→(等飞走)→arrive 两段广播,只对目标设备生效 ——
+          if (m.cmd === "leave")  { if (String(arg) === DEVICE) leave();  return; }
+          if (m.cmd === "arrive") { if (String(arg) === DEVICE) arrive(); return; }
           // 她不在这台时,只听 goto/换装/持久化指令;发声/演出类忽略(在别的设备上)
           const localAct = ["notebook","dance","stopdance","spin","stop","say","ask","testvoice",
                             "titlecard","demo","next","reset","fling","comeback"].includes(m.cmd);

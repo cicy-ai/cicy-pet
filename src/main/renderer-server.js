@@ -470,14 +470,25 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         req.on('end', () => {
           try {
             const { cmd, arg } = JSON.parse(body || '{}');
-            // goto = 换位置:更新唯一在场,新加载的页面据此决定显不显示
-            if (cmd === 'goto' && arg) presence = { device: String(arg) };
+            const bcast = (obj) => { const p = JSON.stringify({ ...obj, t: Date.now() }); for (const c of controlClients) { try { c.write(`data: ${p}\n\n`); } catch {} } };
+            // goto = 搬家,两段式接力(不能同时飞,否则两台都在动):
+            //   ① 先让当前设备「离开」(飞出去) ② 等她飞走了 ③ 再让目标设备「到达」(飞进来)。
+            if (cmd === 'goto' && arg) {
+              const from = presence.device, target = String(arg);
+              presence = { device: target };
+              if (from === target) { bcast({ cmd: 'arrive', arg: target }); }   // 原地召回,直接现身
+              else {
+                bcast({ cmd: 'leave', arg: from });                              // 先消失
+                setTimeout(() => bcast({ cmd: 'arrive', arg: target }), 1600);   // 飞走后再现身
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              return res.end(JSON.stringify({ ok: true, listeners: controlClients.size }));
+            }
             // 配置变更同步进唯一配置(她走到哪都用同一形象/音色)并落盘,重启不丢
             if (cmd === 'model' && arg) { petCfg = { ...petCfg, model: String(arg) }; savePetCfg(); }
             if (cmd === 'voice' && arg) { petCfg = { ...petCfg, voice: String(arg) }; savePetCfg(); }
             if (cmd === 'rate' && arg != null) { petCfg = { ...petCfg, rate: String(arg) }; savePetCfg(); }
-            const payload = JSON.stringify({ cmd, arg, t: Date.now() });
-            for (const client of controlClients) { try { client.write(`data: ${payload}\n\n`); } catch {} }
+            bcast({ cmd, arg });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, listeners: controlClients.size }));
           } catch (e) {
