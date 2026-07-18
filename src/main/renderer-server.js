@@ -625,7 +625,15 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         res.statusCode = 404; return res.end('not found');
       }
       const data = fs.readFileSync(file);
-      noStore({ 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Content-Length': data.length });
+      const ext = path.extname(file).toLowerCase();
+      // 缓存策略:模型/贴图/库/字体/图片这些不变的大资源长期缓存(手机第二次打开秒开);
+      // .html 不缓存(改了 pet.html 刷新即拿最新,不用清缓存)。
+      const immutable = /\.(moc3|png|jpg|jpeg|webp|woff2?|ttf|otf|mp3|wav)$/.test(ext)
+        || /\/models\//.test(u.pathname) || /\/libs\//.test(u.pathname);
+      const cache = ext === '.html'
+        ? 'no-store'
+        : (immutable ? 'public, max-age=604800, immutable' : 'public, max-age=300');
+      res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Content-Length': data.length, 'Cache-Control': cache });
       res.end(data);
     } catch (e) {
       log('[server] error:', e.message);
