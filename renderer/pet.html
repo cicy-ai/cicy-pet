@@ -1768,8 +1768,7 @@
       vx *= k; vy *= k;                         // 保底出场速度，甩轻了也送到底
       maoGone = true;   // 一开甩就立标记——飞行途中按「叫回」也要能生效
       playMove("tumble");
-      flingSfx();
-      try { speak("哇啊啊啊——！"); } catch {}
+      // 消失音效已按用户要求移除（原有「哇啊啊」尖叫 + flingSfx 啪的一声）
       let x = b.x, y = b.y;
       const t0 = performance.now(); let last = t0;
       await new Promise((done) => {
