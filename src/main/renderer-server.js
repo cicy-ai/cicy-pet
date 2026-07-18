@@ -252,9 +252,13 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   // 发消息给 cicy-code 的 agent pane，轮询 current-reply 直到那一轮跑完，取纯文本回复。
   const AGENT_BASE = process.env.CICY_API_PORT ? `http://127.0.0.1:${process.env.CICY_API_PORT}` : 'http://127.0.0.1:8008';
   const controlClients = new Set();   // /control-stream 的在线订阅者(各设备的 pet.html)
-  // 唯一配置(形象/音色/语速)——全设备共享,她走到哪带到哪。开局就定死同一个角色,
-  // 否则各设备空配置回退到各自 localStorage,就会「手机和电脑形象不一样」。
-  let petCfg = { model: 'models/Hiyori/Hiyori.model3.json', voice: 'zh_female_shuangkuaisisi_uranus_bigtts', rate: '+8%', engine: 'doubao' };
+  // 唯一配置(形象/音色/语速)——全设备共享,她走到哪带到哪。**持久化到磁盘**,重启不丢,
+  // 否则内存态一重启就回默认,就会「桌面和手机角色不一致」。
+  const PETCFG_FILE = path.join(cacheDir || appDir, 'petcfg.json');
+  const DEFAULT_PETCFG = { model: 'models/Hiyori/Hiyori.model3.json', voice: 'zh_female_shuangkuaisisi_uranus_bigtts', rate: '+8%', engine: 'doubao' };
+  let petCfg = { ...DEFAULT_PETCFG };
+  try { petCfg = { ...DEFAULT_PETCFG, ...JSON.parse(fs.readFileSync(PETCFG_FILE, 'utf8')) }; } catch {}
+  const savePetCfg = () => { try { fs.writeFileSync(PETCFG_FILE, JSON.stringify(petCfg)); } catch {} };
   let presence = { device: 'mac' };   // 唯一在场:她此刻只在这一台。新页面加载时据此决定显不显示
   // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
   // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。
@@ -468,10 +472,10 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
             const { cmd, arg } = JSON.parse(body || '{}');
             // goto = 换位置:更新唯一在场,新加载的页面据此决定显不显示
             if (cmd === 'goto' && arg) presence = { device: String(arg) };
-            // 配置变更同步进唯一配置(她走到哪都用同一形象/音色)
-            if (cmd === 'model' && arg) petCfg = { ...petCfg, model: String(arg) };
-            if (cmd === 'voice' && arg) petCfg = { ...petCfg, voice: String(arg) };
-            if (cmd === 'rate' && arg != null) petCfg = { ...petCfg, rate: String(arg) };
+            // 配置变更同步进唯一配置(她走到哪都用同一形象/音色)并落盘,重启不丢
+            if (cmd === 'model' && arg) { petCfg = { ...petCfg, model: String(arg) }; savePetCfg(); }
+            if (cmd === 'voice' && arg) { petCfg = { ...petCfg, voice: String(arg) }; savePetCfg(); }
+            if (cmd === 'rate' && arg != null) { petCfg = { ...petCfg, rate: String(arg) }; savePetCfg(); }
             const payload = JSON.stringify({ cmd, arg, t: Date.now() });
             for (const client of controlClients) { try { client.write(`data: ${payload}\n\n`); } catch {} }
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -508,7 +512,8 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
           let body = '';
           req.on('data', (c) => { body += c; });
           req.on('end', () => {
-            try { petCfg = JSON.parse(body || '{}'); } catch {}
+            // 合并(不整体覆盖!),避免某台设备用旧配置把别人刚改的冲掉;落盘持久化
+            try { petCfg = { ...petCfg, ...JSON.parse(body || '{}') }; savePetCfg(); } catch {}
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end('{"ok":true}');
           });

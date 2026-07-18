@@ -2055,7 +2055,8 @@
       try { fetch("/petcfg", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: cfg.model, voice: cfg.voice, rate: cfg.rate, engine: cfg.engine }) }); } catch {}
     }
-    if (api) reportCfg();   // 桌面雪莉启动即上报一次当前配置
+    // 不在启动时上报——服务器的 petCfg 已是持久化的唯一真相,启动只该「读」它,不该用本机
+    // (可能过时的)配置去覆盖。只有用户在本机真的改了配置(persistCfg)才上报。
 
     // ========== 小本本（喜好知识库手账） ==========
     // 数据是真的：/memories 直读大脑（Sherlly）的持久记忆目录——recognizer 每轮自动往里记。
