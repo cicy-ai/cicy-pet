@@ -259,7 +259,15 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   let petCfg = { ...DEFAULT_PETCFG };
   try { petCfg = { ...DEFAULT_PETCFG, ...JSON.parse(fs.readFileSync(PETCFG_FILE, 'utf8')) }; } catch {}
   const savePetCfg = () => { try { fs.writeFileSync(PETCFG_FILE, JSON.stringify(petCfg)); } catch {} };
-  let presence = { device: 'mac' };   // 唯一在场:她此刻只在这一台。新页面加载时据此决定显不显示
+  // 唯一在场:她此刻只在一个 client 上。每个打开的页面 = 一个 client(短 id 如 mac-k3,
+  // 自带 platform)。client 会随页面关闭/App 重启消亡——她"在"的 client 下线后,由同平台的
+  // 新页面通过 /presence?claim= 过继(否则桌面重启一次她就查无此人)。
+  let presence = { client: null, platform: 'mac' };
+  const onlineClients = () => {
+    const seen = new Map();
+    for (const c of controlClients) { if (c._clientId) seen.set(c._clientId, c._platform || 'unknown'); }
+    return seen;   // Map<clientId, platform>
+  };
   // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
   // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。
   let noProxyDispatcher = null;
@@ -474,12 +482,12 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
             // goto = 搬家,两段式接力(不能同时飞,否则两台都在动):
             //   ① 先让当前设备「离开」(飞出去) ② 等她飞走了 ③ 再让目标设备「到达」(飞进来)。
             if (cmd === 'goto' && arg) {
-              const from = presence.device, target = String(arg);
-              presence = { device: target };
+              const from = presence.client, target = String(arg);
+              presence = { client: target, platform: onlineClients().get(target) || 'unknown' };
               if (from === target) { bcast({ cmd: 'arrive', arg: target }); }   // 原地召回,直接现身
               else {
-                bcast({ cmd: 'leave', arg: from });                              // 先消失
-                setTimeout(() => bcast({ cmd: 'arrive', arg: target }), 1600);   // 飞走后再现身
+                if (from) bcast({ cmd: 'leave', arg: from });                    // 先消失
+                setTimeout(() => bcast({ cmd: 'arrive', arg: target }), from ? 1600 : 100);   // 飞走后再现身
               }
               res.writeHead(200, { 'Content-Type': 'application/json' });
               return res.end(JSON.stringify({ ok: true, listeners: controlClients.size }));
@@ -504,25 +512,36 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
           Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*',
         });
         res.write(': hello\n\n');
-        // client 注册制:每台设备就是一个 client id(?device=),在线列表由连接动态生成——
-        // 以后加 Windows/iPad/第二台手机都零改动,连上即出现在「串门」按钮里。
-        res._deviceId = (u.searchParams.get('device') || 'unknown').slice(0, 32);
+        // client 注册制:每个打开的页面 = 一个 client(?client=短id & ?platform=类型),
+        // 在线列表由连接动态生成——以后加 Windows/iPad/第二台手机都零改动。
+        res._clientId = (u.searchParams.get('client') || u.searchParams.get('device') || 'unknown').slice(0, 32);
+        res._platform = (u.searchParams.get('platform') || 'unknown').slice(0, 16);
         controlClients.add(res);
         const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch {} }, 25000);
         req.on('close', () => { clearInterval(ka); controlClients.delete(res); });
         return;
       }
 
-      // 在线 client 列表:[{id, present}],present=她此刻在不在那台
+      // 在线 client 列表:[{id, platform, present}],present=她此刻在不在那个页面
       if (u.pathname === '/clients') {
-        const ids = [...new Set([...controlClients].map((c) => c._deviceId).filter((x) => x && x !== 'unknown'))];
+        const seen = onlineClients();
+        const clients = [...seen.entries()].filter(([id]) => id !== 'unknown')
+          .map(([id, platform]) => ({ id, platform, present: presence.client === id }));
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ clients: ids.map((id) => ({ id, present: presence.device === id })), presence: presence.device }));
+        res.end(JSON.stringify({ clients, presence: presence.client, platform: presence.platform }));
         return;
       }
 
-      // 她此刻在哪一台(唯一在场)。新页面加载先问这里,决定显示还是藏起来。
+      // 她此刻在哪个 client(唯一在场)。新页面加载先问这里,决定显示还是藏起来。
+      // ?claim=<cid>&platform=<p>:她"在"的 client 已下线且平台相同 → 过继给来问的这页。
       if (u.pathname === '/presence') {
+        const claim = u.searchParams.get('claim'), plat = u.searchParams.get('platform');
+        if (claim && plat && presence.client !== claim) {
+          const online = onlineClients();
+          if (!online.has(presence.client) && plat === presence.platform) {
+            presence = { client: claim.slice(0, 32), platform: plat.slice(0, 16) };
+          }
+        }
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify(presence));
         return;

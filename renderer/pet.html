@@ -62,21 +62,32 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     /* 手机版整体观感:星空深色底 + 脚下柔光地台(桌面浮窗保持透明,不受影响) */
     body.phone { background: radial-gradient(ellipse 130% 70% at 50% 30%, #0d1736 0%, #070b1a 55%, #04060f 100%); }
-    body.phone::after { content: ""; position: fixed; left: 50%; bottom: 8%;
+    body.phone::after { content: ""; position: fixed; left: 50%;
+      bottom: calc(58px + env(safe-area-inset-bottom));   /* 光台贴着她的脚(语音条上沿) */
       width: 78vw; height: 12vh; transform: translateX(-50%); pointer-events: none;
       background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(90,150,255,.16), transparent 70%); }
 
-    /* 手机专用:顶部位置条。按钮智能生成——她在手机→只有「去某台」;不在→只有「召回」 */
-    #locBar { display: none; position: fixed; top: calc(16px + env(safe-area-inset-top));
-      left: 50%; transform: translateX(-50%); z-index: 45; gap: 10px; }
-    body.phone #locBar { display: flex; }
-    #locBar button { border: none; cursor: pointer; padding: 12px 24px; border-radius: 24px;
-      font-size: 15px; color: #eaf4ff; background: rgba(18,48,94,.85); backdrop-filter: blur(6px);
+    /* 手机专用:场控入口——右上角一枚半透明小圆钮,不抢戏。点开才展开
+       「去某台/召回」菜单(她在→去X;不在→召回),点完自动收起。 */
+    #stageCtl { display: none; position: fixed; top: calc(14px + env(safe-area-inset-top));
+      right: 12px; z-index: 45; flex-direction: column; align-items: flex-end; gap: 8px; }
+    body.phone #stageCtl { display: flex; }
+    #stageToggle { width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+      background: rgba(18,48,94,.4); color: #9db8e8; font-size: 17px; opacity: .5;
+      backdrop-filter: blur(6px); -webkit-tap-highlight-color: transparent;
+      transition: opacity .15s ease, background .15s ease; }
+    #stageCtl.open #stageToggle { opacity: 1; background: rgba(18,48,94,.92); color: #eaf4ff; }
+    #stageMenu { display: none; flex-direction: column; align-items: flex-end; gap: 8px; }
+    #stageCtl.open #stageMenu { display: flex; }
+    #stageMenu button { border: none; cursor: pointer; padding: 10px 18px; border-radius: 20px;
+      font-size: 14px; color: #eaf4ff; background: rgba(18,48,94,.88); backdrop-filter: blur(6px);
       font-family: "PingFang SC", system-ui; box-shadow: 0 3px 12px rgba(0,0,0,.4);
       -webkit-tap-highlight-color: transparent; }
-    #locBar button:active { transform: scale(.95); }
-    #locBar button.primary { background: linear-gradient(135deg, #2a6fd0, #12305e);
-      padding: 12px 26px; font-size: 15px; }
+    #stageMenu button:active { transform: scale(.95); }
+    #stageMenu button.primary { background: linear-gradient(135deg, #2a6fd0, #12305e); }
+    /* 当前状态:她此刻在哪个 client(短 id)。菜单展开时第一行就是它 */
+    #stageMenu .st { font-size: 12px; color: #86a8d8; background: rgba(7,11,26,.75);
+      padding: 6px 12px; border-radius: 14px; font-family: "PingFang SC", system-ui; }
 
     /* 手机版语音键:微信式底部长条——拇指天然落点,左右手都顺手,按住说话松手发送。
        只有 body.phone 显示;适配 iPhone 底部安全区。 */
@@ -101,7 +112,10 @@
   <canvas id="canvas"></canvas>
   <div id="bubble"></div>
   <div id="loading"><div class="ring"></div><div class="msg" id="loadingMsg">雪莉正在穿过网线……</div></div>
-  <div id="locBar"></div>
+  <div id="stageCtl">
+    <button id="stageToggle">🎬</button>
+    <div id="stageMenu"></div>
+  </div>
   <button id="voiceBtn">🎙️<span class="hint">按 住 说 话</span></button>
 
   <script>
@@ -114,9 +128,17 @@
     // DEVICE = 本机身份;present = 她此刻在不在这台。goto<设备> 让目标飞入、其余飞出。
     // 注意:不能用下方才声明的 params(TDZ),这里直接读 URL。
     const __q = new URLSearchParams(location.search);
-    const DEVICE = __q.get("device") || (window.electronAPI ? "mac" : "phone");
+    // platform = 设备类型(mac/windows/linux/phone);每个打开的页面 = 一个独立 client,
+    // 有自己的短 id(平台-两位随机,如 mac-k3)。sessionStorage 保证同一标签页刷新不换身份。
+    const PLATFORM = __q.get("device") || (window.electronAPI ? "mac" : "phone");
+    const DEVICE = PLATFORM;   // 兼容旧代码里的 DEVICE 用法(UI 分支按平台走)
+    let CLIENT_ID = sessionStorage.getItem("sherlly.cid");
+    if (!CLIENT_ID || !CLIENT_ID.startsWith(PLATFORM + "-")) {
+      CLIENT_ID = PLATFORM + "-" + Math.random().toString(36).slice(2, 4);
+      try { sessionStorage.setItem("sherlly.cid", CLIENT_ID); } catch {}
+    }
     let present = __q.get("away") ? false : true;   // 默认在场;?away=1 开局不在(等召唤)
-    // 手机才有 UI(loading/语音/位置条);桌面透明浮窗保持原样。尽早打标,避免闪。
+    // 手机才有 UI(loading/语音/场控);桌面透明浮窗保持原样。尽早打标,避免闪。
     if (DEVICE === "phone") document.body.classList.add("phone");
     const DEVICE_NAME = { mac: "电脑", phone: "手机", windows: "Windows" };
     // 她飞入这台设备:显示形象 + 入场特效 + 打招呼(桌面走真窗口飞行,手机走画布内飞入)
@@ -1360,33 +1382,46 @@
       window.addEventListener("mouseup", end);
     })();
 
-    // 手机顶部位置条:按钮从在线 client 列表动态生成,且看她在哪——
-    //   她在手机 → 只显示「去电脑💻/去Windows🪟…」(把她送走);
-    //   她不在   → 只显示一个「🪄 召回雪莉」。绝不出现"人在这还让你召回"的傻按钮。
+    // 场控角标(右上角 🎬,不抢戏):点开才见菜单——第一行是当前状态(她在哪个 client),
+    // 下面按在线 client 动态生成「去某台」;她不在这页时只给一个「召回」。点完自动收起。
     const DEV_META = { mac: ["💻", "电脑"], windows: ["🪟", "Windows"], linux: ["🐧", "Linux"], phone: ["📱", "手机"] };
+    const clientLabel = (c) => {
+      const [ic, name] = DEV_META[c.platform || c.id] || ["🛰️", c.platform || c.id];
+      return { ic, name, full: `${ic} ${name}·${c.id}` };
+    };
     async function reflectLoc() {
-      const bar = document.getElementById("locBar");
-      if (!bar || DEVICE !== "phone") return;
+      const menu = document.getElementById("stageMenu");
+      if (!menu || DEVICE !== "phone") return;
       let data = null;
       try { data = await (await fetch("/clients")).json(); } catch { return; }
-      const others = (data.clients || []).filter((c) => c.id !== DEVICE);
-      let html = "";
+      const clients = data.clients || [];
+      const here = clients.find((c) => c.present);
+      const stTxt = here ? `她在 ${clientLabel(here).full}` : `她在 ${data.presence || "未知"}(离线)`;
+      let html = `<div class="st">${stTxt} · 我是 ${CLIENT_ID}</div>`;
       if (!present) {
-        html = `<button class="primary" data-goto="${DEVICE}">🪄 召回雪莉</button>`;
+        html += `<button class="primary" data-goto="${CLIENT_ID}">🪄 召回到这里</button>`;
       } else {
-        for (const c of others) {
-          const [ic, name] = DEV_META[c.id] || ["🛰️", c.id];
-          html += `<button data-goto="${c.id}">${ic} 去${name}</button>`;
+        for (const c of clients.filter((c) => c.id !== CLIENT_ID)) {
+          const { ic, name } = clientLabel(c);
+          html += `<button data-goto="${c.id}">${ic} 去${name}·${c.id}</button>`;
         }
       }
-      bar.innerHTML = html;
-      bar.querySelectorAll("button[data-goto]").forEach((b) => {
-        b.onclick = () => { b.disabled = true; fetch("/control", { method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cmd: "goto", arg: b.dataset.goto }) }).catch(() => {}); };
+      menu.innerHTML = html;
+      menu.querySelectorAll("button[data-goto]").forEach((b) => {
+        b.onclick = () => { b.disabled = true;
+          fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cmd: "goto", arg: b.dataset.goto }) }).catch(() => {});
+          document.getElementById("stageCtl").classList.remove("open"); };
       });
     }
-    if (DEVICE === "phone") setInterval(reflectLoc, 6000);   // 设备上下线/她被别处召走,定时对齐
+    if (DEVICE === "phone") {
+      setInterval(reflectLoc, 6000);   // 设备上下线/她被别处召走,定时对齐
+      const ctl = document.getElementById("stageCtl");
+      document.getElementById("stageToggle").onclick = () => {
+        ctl.classList.toggle("open");
+        if (ctl.classList.contains("open")) reflectLoc();   // 打开瞬间刷一次最新状态
+      };
+    }
 
     // superfly 音效：飞行段长哨声，落地闷响+弹簧，第二跳补一声小闷响
     function superflySfx() {
@@ -1573,14 +1608,17 @@
       // 她是一个角色:同一形象、同一声音、同一时刻只在一台。加载前先问服务器唯一真相——
       // 用共享的形象/音色(全设备一致),并按「她此刻在哪台」决定本机显示还是藏起来。
       try {
+        // ?claim=:如果她"在"的那个 client 已下线且平台和我相同,服务器把她过继给我——
+        // 否则桌面 App 一重启(新 client id)她就查无此人,永远不现身。
         const [pc, pr] = await Promise.all([
           fetch("/petcfg").then((r) => r.json()).catch(() => ({})),
-          fetch("/presence").then((r) => r.json()).catch(() => ({})),
+          fetch(`/presence?claim=${encodeURIComponent(CLIENT_ID)}&platform=${encodeURIComponent(PLATFORM)}`)
+            .then((r) => r.json()).catch(() => ({})),
         ]);
         if (pc && pc.model) cfg.model = pc.model;
         if (pc && pc.voice) { cfg.voice = pc.voice; if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; }
         if (pc && pc.rate) cfg.rate = pc.rate;
-        if (pr && pr.device) present = (pr.device === DEVICE);   // 不在这台就先藏着,等被 goto 召唤
+        if (pr && pr.client) present = (pr.client === CLIENT_ID);   // 不在这个 client 就先藏着,等被 goto 召唤
       } catch {}
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
@@ -1715,10 +1753,13 @@
     function fit() {
       if (!model) return;
       if (DEVICE === "phone") {
-        // 手机:按屏高撑满(0.86,给顶部按钮/底部语音条留口),模型内部的透明边横向出血没关系——
-        // 否则按宽度算她只有中间一小条,太小气。
-        baseScale = (window.innerHeight / model.internalModel.height) * 0.86;
-        basePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 - 6 };
+        // 手机:人要站在语音条上沿一点点——以语音键顶边为"地面",模型贴地放,
+        // 高度撑满地面以上的空间(横向透明边出血没关系,按宽度算她太小气)。
+        const vb = document.getElementById("voiceBtn");
+        const floor = (vb && getComputedStyle(vb).display !== "none")
+          ? vb.getBoundingClientRect().top - 10 : window.innerHeight * 0.92;
+        baseScale = (floor / model.internalModel.height) * 0.98;
+        basePos = { x: window.innerWidth / 2, y: floor - (model.internalModel.height * baseScale) / 2 };
       } else {
         // 桌面:留 12% 余量——转圈/跳跃会把模型甩出去一点,贴边会被窗口裁掉
         baseScale = Math.min(window.innerWidth / model.internalModel.width,
@@ -2071,15 +2112,16 @@
     // 那台设备”上就地发生（手机上就手机放声+手机对口型）。只有“飞出屏幕/片头全屏”这
     // 类真窗口控制才需要桌面宿主(api),没有就静默跳过——手机端天然降级。
     {
-      const es = new EventSource("/control-stream?device=" + encodeURIComponent(DEVICE));
+      const es = new EventSource("/control-stream?client=" + encodeURIComponent(CLIENT_ID) +
+        "&platform=" + encodeURIComponent(PLATFORM));
       es.onmessage = async (ev) => {
         let m = {};
         try { m = JSON.parse(ev.data); } catch { return; }
         const arg = m.arg;
         try {
           // —— 漫游接力:服务器把 goto 拆成 leave→(等飞走)→arrive 两段广播,只对目标设备生效 ——
-          if (m.cmd === "leave")  { if (String(arg) === DEVICE) leave();  return; }
-          if (m.cmd === "arrive") { if (String(arg) === DEVICE) arrive(); return; }
+          if (m.cmd === "leave")  { if (String(arg) === CLIENT_ID) leave();  return; }
+          if (m.cmd === "arrive") { if (String(arg) === CLIENT_ID) arrive(); return; }
           // 她不在这台时,只听 goto/换装/持久化指令;发声/演出类忽略(在别的设备上)
           const localAct = ["notebook","dance","stopdance","spin","stop","say","ask","testvoice",
                             "titlecard","demo","next","reset","fling","comeback"].includes(m.cmd);

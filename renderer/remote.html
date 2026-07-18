@@ -83,9 +83,9 @@
       const r = await fetch("/control", { method: "POST",
         headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd, arg }) });
       const j = await r.json();
-      if (!j.listeners) toast("⚠️ 桌面雪莉不在线");
+      if (!j.listeners) toast("⚠️ 没有在线的雪莉页面");
       else toast("已发送 ✓");
-      document.getElementById("status").textContent = j.listeners ? "已连上桌面雪莉 ●" : "桌面雪莉离线 ○";
+      refreshClients();   // 指令(尤其 goto)后马上刷新「她在哪」状态
     } catch { toast("发送失败:网络不通"); }
   }
   document.querySelectorAll("button[data-cmd]").forEach((b) =>
@@ -98,19 +98,26 @@
     const v = document.getElementById("askText").value.trim();
     if (v) { send("ask", v); document.getElementById("askText").value = ""; }
   };
-  // 串门按钮:从在线 client 列表动态生成。她在的那台亮着(disabled),点别的送她过去。
+  // 串门按钮:从在线 client 列表动态生成(每个打开的页面=一个 client,短 id 如 mac-k3)。
+  // 她在的那个亮着(disabled),点别的送她过去。顶部 status 常显「她在哪个 client」。
   const META = { mac: ["💻", "电脑"], phone: ["📱", "手机"], windows: ["🪟", "Windows"], linux: ["🐧", "Linux"] };
   async function refreshClients() {
     try {
       const d = await (await fetch("/clients")).json();
       const box = document.getElementById("clientBtns");
+      const label = (c) => { const [ic, name] = META[c.platform] || ["🛰️", c.platform || "?"]; return { ic, name }; };
       box.innerHTML = (d.clients || []).map((c) => {
-        const [ic, name] = META[c.id] || ["🛰️", c.id];
+        const { ic, name } = label(c);
         return `<button data-cmd="goto" data-arg="${c.id}" ${c.present ? "disabled style='opacity:.55'" : ""}>` +
-          `<span class="ic">${ic}</span><span class="lb">${c.present ? "她在" + name : "去" + name}</span></button>`;
+          `<span class="ic">${ic}</span><span class="lb">${c.present ? "她在这" : "去" + name}</span>` +
+          `<span class="lb" style="font-size:11px;color:var(--dim)">${c.id}</span></button>`;
       }).join("") || `<button disabled><span class="ic">🛰️</span><span class="lb">无在线设备</span></button>`;
       box.querySelectorAll("button[data-cmd]").forEach((b) =>
         b.onclick = () => send(b.dataset.cmd, b.dataset.arg));
+      const here = (d.clients || []).find((c) => c.present);
+      const st = document.getElementById("status");
+      if (here) { const { ic, name } = label(here); st.textContent = `她在 ${ic}${name} · ${here.id} ●`; }
+      else st.textContent = d.presence ? `她在 ${d.presence}(已离线) ○` : "她不在任何设备上 ○";
     } catch {}
   }
   refreshClients();
