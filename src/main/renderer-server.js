@@ -252,7 +252,9 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   // 发消息给 cicy-code 的 agent pane，轮询 current-reply 直到那一轮跑完，取纯文本回复。
   const AGENT_BASE = process.env.CICY_API_PORT ? `http://127.0.0.1:${process.env.CICY_API_PORT}` : 'http://127.0.0.1:8008';
   const controlClients = new Set();   // /control-stream 的在线订阅者(各设备的 pet.html)
-  let petCfg = {};                    // 唯一配置(形象/音色/语速)——全设备共享,她走到哪带到哪
+  // 唯一配置(形象/音色/语速)——全设备共享,她走到哪带到哪。开局就定死同一个角色,
+  // 否则各设备空配置回退到各自 localStorage,就会「手机和电脑形象不一样」。
+  let petCfg = { model: 'models/Hiyori/Hiyori.model3.json', voice: 'zh_female_shuangkuaisisi_uranus_bigtts', rate: '+8%', engine: 'doubao' };
   let presence = { device: 'mac' };   // 唯一在场:她此刻只在这一台。新页面加载时据此决定显不显示
   // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
   // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。

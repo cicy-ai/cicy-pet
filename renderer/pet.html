@@ -41,12 +41,26 @@
       transition: opacity .18s ease;
     }
     #bubble.on { opacity: 1; }
+
+    /* 加载态:形象还在加载/或她在别的设备时,别露白屏。转圈+提示,淡出。 */
+    #loading { position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px; z-index: 50;
+      background: radial-gradient(ellipse 120% 80% at 50% 40%, #0b1330, #05070f 70%);
+      color: #bfe0ff; font-family: "PingFang SC", system-ui, sans-serif;
+      transition: opacity .5s ease; }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    #loading .ring { width: 54px; height: 54px; border-radius: 50%;
+      border: 3px solid rgba(140,220,255,.18); border-top-color: #8cdcff;
+      animation: spin 0.9s linear infinite; }
+    #loading .msg { font-size: 15px; color: #86a8d8; letter-spacing: 1px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 
 <body>
   <canvas id="canvas"></canvas>
   <div id="bubble"></div>
+  <div id="loading"><div class="ring"></div><div class="msg" id="loadingMsg">雪莉正在穿过网线……</div></div>
 
   <script>
     const api = window.electronAPI || null;   // Live2DPet 的 preload；没有就降级成普通网页
@@ -66,6 +80,7 @@
       if (present) return;
       present = true;
       if (window.__model) window.__model.visible = true;
+      const ld = document.getElementById("loading"); if (ld) ld.classList.add("hidden");
       if (window.electronAPI) { try { await windowFlight("我来啦——！", typeof landingSpot === "function" ? landingSpot() : undefined); } catch { playMove("flyin"); speak("我来啦——！"); } }
       else { playMove("flyin"); setTimeout(() => speak("我来" + (DEVICE_NAME[DEVICE] || "") + "啦——！"), 300); }
     }
@@ -1452,6 +1467,12 @@
       }
       if (!model) { console.error("[boot] 模型多次加载失败"); return; }
       bus.postMessage({ type: "ready" });
+      // 收起加载态:她在这台就直接露脸;不在(在别的设备)就提示一句再淡出
+      const ld = document.getElementById("loading");
+      if (ld) {
+        if (!present) { const msg = document.getElementById("loadingMsg"); if (msg) msg.textContent = "雪莉正在别的设备上……"; }
+        setTimeout(() => ld.classList.add("hidden"), present ? 200 : 1200);
+      }
       if (present && params.get("entrance")) setTimeout(() => windowFlight(), 500);   // 只有她在这台才入场
       if (present && params.get("say")) setTimeout(() => speak(params.get("say")), 800);   // 自测口型:?say=文字
       window.__lipPeek = () => ({ active: lip.active, value: +lip.value.toFixed(3) });
