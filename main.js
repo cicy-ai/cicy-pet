@@ -107,26 +107,22 @@ app.whenReady().then(async () => {
         console.error('[server] failed to start:', e.message);
     }
 
-    // 首次运行下载模型包（打包后 renderer/ 里没有模型）。放在建窗口之前，等它就位再显示宠物。
-    try {
-        const how = await ensureModels({
-            rendererModelsDir: path.join(basePath, 'renderer', 'models'),
-            assetDir, url: MODELS_URL, log: (...a) => console.log(...a),
-        });
-        console.log('[models]', how);
-    } catch (e) {
-        console.error('[models] fetch failed (宠物会先空着，可在设置里重试):', e.message);
-    }
-
     ctx.ttsService = new TTSService();
     ctx.translationService = new TranslationService();
     createSettingsWindow();
     trayManager.createTray();
 
-    // 宠物窗口本来只有在设置里导入模型后才会被创建（而这个仓库不带任何模型，
-    // 所以默认永远看不到宠物）。渲染现在交给 live2d-standalone 的 pet.html，
-    // 模型它自己带，所以启动就把宠物拉起来。
+    // 宠物窗口：模型本来就 bundled 在 renderer/models/，所以**先把宠物拉起来**，
+    // 不等 ensureModels——否则 ensureModels 一旦联网卡住（会话代理不通），窗口就永远建不出来，
+    // 桌面上看不到宠物。ensureModels 只对「打包后无 bundled 模型」的场景有用，放后台补即可。
     createPetWindow().catch((e) => console.error('[pet] autostart failed:', e.message));
+
+    // 模型包补齐（后台，不阻塞窗口）：打包产物 renderer/ 里没模型时首次从 OSS 下载。
+    ensureModels({
+        rendererModelsDir: path.join(basePath, 'renderer', 'models'),
+        assetDir, url: MODELS_URL, log: (...a) => console.log(...a),
+    }).then((how) => console.log('[models]', how))
+      .catch((e) => console.error('[models] fetch failed (可在设置里重试):', e.message));
 
     // 一切控制走手机导演台(remote.html → /control SSE → pet.html 执行器),
     // 不再注册全局快捷键(用户 2026-07-18:「快捷键可以不需要,只要手机控制」)。
