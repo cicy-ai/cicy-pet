@@ -88,6 +88,18 @@
     /* 当前状态:她此刻在哪个 client(短 id)。菜单展开时第一行就是它 */
     #stageMenu .st { font-size: 12px; color: #86a8d8; background: rgba(7,11,26,.75);
       padding: 6px 12px; border-radius: 14px; font-family: "PingFang SC", system-ui; }
+    /* 她不在这页时,屏幕正中不能空着:状态卡(她在哪)+ 一个召回按钮 */
+    #awayCard { display: none; position: fixed; inset: 0; z-index: 30; pointer-events: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+    body.phone #awayCard.show { display: flex; }
+    #awayCard .ic { font-size: 46px; opacity: .85; animation: floaty 3s ease-in-out infinite; }
+    #awayCard .txt { font: 16px/1.6 "PingFang SC", system-ui; color: #a8c4ee; letter-spacing: 1px; }
+    #awayCard button { pointer-events: auto; border: none; cursor: pointer; margin-top: 6px;
+      padding: 14px 30px; border-radius: 26px; font-size: 16px; color: #eaf4ff;
+      font-family: "PingFang SC", system-ui; background: linear-gradient(135deg, #2a6fd0, #12305e);
+      box-shadow: 0 6px 20px rgba(20,60,140,.5); -webkit-tap-highlight-color: transparent; }
+    #awayCard button:active { transform: scale(.96); }
+    @keyframes floaty { 50% { transform: translateY(-9px); } }
 
     /* 手机版语音键:微信式底部长条——拇指天然落点,左右手都顺手,按住说话松手发送。
        只有 body.phone 显示;适配 iPhone 底部安全区。 */
@@ -115,6 +127,11 @@
   <div id="stageCtl">
     <button id="stageToggle">🎬</button>
     <div id="stageMenu"></div>
+  </div>
+  <div id="awayCard">
+    <div class="ic">🔭</div>
+    <div class="txt" id="awayTxt">她不在这里</div>
+    <button id="awayBack">🪄 召回到这里</button>
   </div>
   <button id="voiceBtn">🎙️<span class="hint">按 住 说 话</span></button>
 
@@ -148,6 +165,7 @@
       const m = window.__model;
       if (m) { m.visible = true; m.alpha = 1; }        // 复位(离开时淡到 0 过)
       const ld = document.getElementById("loading"); if (ld) ld.classList.add("hidden");
+      const ac = document.getElementById("awayCard"); if (ac) ac.classList.remove("show");   // 她回来了,状态卡马上收
       if (typeof reflectLoc === "function") reflectLoc();
       if (window.electronAPI) { try { await windowFlight("我来啦——！", typeof landingSpot === "function" ? landingSpot() : undefined); } catch { playMove("flyin"); speak("我来啦——！"); } }
       else { playMove("flyin"); setTimeout(() => speak("我来" + (DEVICE_NAME[DEVICE] || "") + "啦——！"), 300); }
@@ -163,7 +181,8 @@
       } else {
         petFlyOffCanvas();   // 手机:立刻翻滚+飞出+淡出
       }
-      if (typeof reflectLoc === "function") reflectLoc();
+      // 等她飞走了(~0.9s)再亮出正中的状态卡,别跟飞出动画抢镜
+      setTimeout(() => { if (!present && typeof reflectLoc === "function") reflectLoc(); }, 900);
     }
     // 手机版「消失」:模型在画布里翻滚、往上飞、同时淡出,~0.7s 后藏起并复位(下次 arrive 重现)。
     function petFlyOffCanvas() {
@@ -1397,6 +1416,13 @@
       const clients = data.clients || [];
       const here = clients.find((c) => c.present);
       const stTxt = here ? `她在 ${clientLabel(here).full}` : `她在 ${data.presence || "未知"}(离线)`;
+      // 她不在这页 → 屏幕正中亮出状态卡(在哪 + 召回);在 → 收起
+      const away = document.getElementById("awayCard");
+      if (away) {
+        away.classList.toggle("show", !present);
+        document.getElementById("awayTxt").textContent =
+          here ? `她在 ${clientLabel(here).full}` : "她不知道飘到哪儿去了";
+      }
       let html = `<div class="st">${stTxt} · 我是 ${CLIENT_ID}</div>`;
       if (!present) {
         html += `<button class="primary" data-goto="${CLIENT_ID}">🪄 召回到这里</button>`;
@@ -1420,6 +1446,13 @@
       document.getElementById("stageToggle").onclick = () => {
         ctl.classList.toggle("open");
         if (ctl.classList.contains("open")) reflectLoc();   // 打开瞬间刷一次最新状态
+      };
+      // 正中状态卡上的召回:一键把她接到这个 client
+      document.getElementById("awayBack").onclick = (e) => {
+        e.target.disabled = true;
+        setTimeout(() => { e.target.disabled = false; }, 2500);
+        fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cmd: "goto", arg: CLIENT_ID }) }).catch(() => {});
       };
     }
 
