@@ -128,10 +128,9 @@ app.whenReady().then(async () => {
     // 模型它自己带，所以启动就把宠物拉起来。
     createPetWindow().catch((e) => console.error('[pet] autostart failed:', e.message));
 
-    // 拍摄剧本模式的全局快捷键（拍抖音：镜头外接话，按键让 Mao 说下一句）。
-    // Option+R = 开拍准备（Mao 藏到屏幕外）；Option+M = 下一句台词。
-    // 用 executeJavaScript 直接驱动 pet.html 的 window.petScript，不动 preload。
-    const { globalShortcut } = require('electron');
+    // 一切控制走手机导演台(remote.html → /control SSE → pet.html 执行器),
+    // 不再注册全局快捷键(用户 2026-07-18:「快捷键可以不需要,只要手机控制」)。
+    // petEval 保留:主进程内部驱动 pet.html 用(片头结束接坠机等)。
     const petEval = async (code) => {
         // 宠物窗口可能被托盘「隐藏宠物」关掉了——快捷键按下时先把她拉回来再执行，
         // 否则按了没反应还查无此症。重建后等模型加载完（ready 事件太早，粗等 4s）。
@@ -146,24 +145,56 @@ app.whenReady().then(async () => {
         }
         ctx.petWindow.webContents.executeJavaScript(code).catch(() => {});
     };
-    // register 返回 false = 被其他应用占用（Alt+Space 常被 Alfred/Raycast 抢）——必须留日志，
-    // 否则「按了没反应」根本查不到原因。
-    const reg = (accel, fn) => {
-        let ok = false;
-        try { ok = globalShortcut.register(accel, fn); } catch (e) { console.error('[shortcut]', accel, e.message); }
-        console.log('[shortcut]', accel, ok ? 'ok' : 'FAILED（被其他应用占用？）');
-        return ok;
+    // 小本本(拍摄用大开本):单独一个大窗口在她旁边展开,字号按
+    // 「手机拍屏幕仍看得清」排版;她同时开口念一条。再开收起。
+    let notebookWindow = null;
+    const toggleNotebook = () => {
+        const { screen } = require('electron');
+        const wa = screen.getPrimaryDisplay().workAreaSize;
+        if (notebookWindow && !notebookWindow.isDestroyed()) {
+            if (notebookWindow.isVisible()) { notebookWindow.hide(); return false; }
+            notebookWindow.webContents.reload();   // 重开时刷新——本本可能又厚了
+            notebookWindow.show();
+            return true;
+        }
+        const W = Math.min(860, Math.round(wa.width * 0.48));
+        const H = Math.round(wa.height * 0.94);
+        notebookWindow = new BrowserWindow({
+            width: W, height: H, x: 36, y: Math.round((wa.height - H) / 2),
+            frame: false, transparent: true, alwaysOnTop: true, resizable: true,
+            skipTaskbar: true, hasShadow: false,
+            webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
+        });
+        notebookWindow.setAlwaysOnTop(true, 'screen-saver');
+        notebookWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+        notebookWindow.loadURL('http://127.0.0.1:13004/notebook.html');
+        notebookWindow.on('closed', () => { notebookWindow = null; });
+        return true;
     };
-    reg('Alt+R', () => petEval('window.petScript && window.petScript.reset()'));
-    reg('Alt+M', () => petEval('window.petScript && window.petScript.next()'));
-    // Alt+X = 一键甩飞（拍「手一滑她就没了」的镜头，用触控板甩不好拍时的保险）
-    reg('Alt+X', () => petEval('window.pet && window.pet.flingOut && window.pet.flingOut()'));
-    // 语音对话：按一下开始录音，再按一下（或静音 1.5s）结束 → whisper → AI → 开口回答。
-    // （全局快捷键收不到 keyup，「长按说话」做不了，退而求其次用「按一下/自动收音」。）
-    // Alt+Space 容易撞车，注册不上就只剩 Alt+V —— 两个都注册，哪个好使用哪个。
-    const voiceFn = () => petEval('window.petVoice && window.petVoice.toggle()');
-    reg('Alt+Space', voiceFn);
-    reg('Alt+V', voiceFn);
+    ipcMain.handle('toggle-notebook', () => toggleNotebook());
+    // Alt+T = 实时片头:全屏窗口现场播 6s 片头动画(titlecard.html,纯 CSS 零渲染),
+    // 关窗后无缝接 EP1 坠机预演——一镜到底,拍到的就是真实表演。点击可跳过。
+    let titlecardWindow = null;
+    const playTitleCard = () => {
+        if (titlecardWindow && !titlecardWindow.isDestroyed()) return false;
+        const { screen } = require('electron');
+        const b = screen.getPrimaryDisplay().bounds;
+        titlecardWindow = new BrowserWindow({
+            x: b.x, y: b.y, width: b.width, height: b.height,
+            frame: false, transparent: false, alwaysOnTop: true,
+            skipTaskbar: true, hasShadow: false, resizable: false,
+            webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
+        });
+        titlecardWindow.setAlwaysOnTop(true, 'screen-saver');
+        titlecardWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+        titlecardWindow.loadURL('http://127.0.0.1:13004/titlecard.html');
+        titlecardWindow.on('closed', () => {
+            titlecardWindow = null;
+            petEval('window.petScript && window.petScript.demo && window.petScript.demo()');
+        });
+        return true;
+    };
+    ipcMain.handle('play-titlecard', () => playTitleCard());
     // 语音对话要用麦克风：mac 首次要向系统讨权限（记住后不再弹）
     if (process.platform === 'darwin') {
         try { require('electron').systemPreferences.askForMediaAccess('microphone').catch(() => {}); } catch {}

@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>CiCy Pet</title>
+  <title>Sherlly Pet</title>
 
   <script src="libs/live2dcubismcore.min.js"></script>
   <script src="libs/live2d.min.js"></script>
@@ -375,14 +375,14 @@
       "呼……绕了好大一圈才找到你！",
       "咦？这是谁的电脑？算了，以后就是我的啦！",
     ];
-    async function windowFlight(line) {
+    async function windowFlight(line, target) {
       if (!api || !model) { playMove("flyin"); return; }  // 浏览器里没有窗口控制，退回画布内版本
       const b = await api.getWindowBounds();
       const sw = ((window.screen && window.screen.width) || 1680);
       const sh = ((window.screen && window.screen.height) || 1050);
-      // 起点：屏幕右下角；终点：屏幕中心。螺旋圈半径由小变大，最后 1/5 收拢落进中心。
+      // 起点：屏幕右下角；终点：屏幕中心（可传 target 改落点——比如落在星球壁纸的地平线下）。
       const from = { x: sw - b.width / 2 - 30, y: sh - b.height / 2 - 40 };
-      const to = { x: sw / 2, y: sh / 2 - 30 };
+      const to = target || { x: sw / 2, y: sh / 2 - 30 };
       playMove("superfly");
       const t0 = performance.now();
       await new Promise((done) => {
@@ -405,25 +405,50 @@
           requestAnimationFrame(step);
         })();
       });
-      try { speak(line || ENTRANCE_LINES[Math.floor(Math.random() * ENTRANCE_LINES.length)]); } catch {}
+      if (line !== null)   // 传 null = 只飞不说（预演模式里台词另行编排，尖叫要压在坠落过程上）
+        try { speak(line || ENTRANCE_LINES[Math.floor(Math.random() * ENTRANCE_LINES.length)]); } catch {}
     }
 
     // ---------- 拍摄剧本模式 ----------
     // 拍抖音用：Mao 的台词按顺序排好，主进程注册的全局快捷键每按一次
     // 就 next() 一步（说下一句+做动作），镜头外的人负责接话。
     // 流程：藏起来 → 螺旋入场“哈喽” → 自我介绍 → 会什么 → 报今天天气。
+    // ========== EP1《坠落》——连续剧第一集 ==========
+    // 世界观：这台电脑是一颗星球。深夜，一个来自遥远星球的小精灵坠落于此。
+    // 两种用法（同一份台词）：
+    //   Alt+M 逐句走 —— 正式拍摄，守门人（你）的台词真人现场说；
+    //   Alt+P 整集自动预演 —— 守门人台词也用 TTS 男声配出来，一个人就能审片。
+    const GUARD_VOICE = "zh_male_beijingxiaoye_moon_bigtts";   // 预演里「守门人」的配音
+    // 情绪曲线：吓一跳(坠机) → 好笑(怼人) → 惊讶(她会数bug) → 心疼(BGM骤停) →
+    // 反弹(抢着要名字) → 上头(收房租) → 后背发凉又想笑(不是一个人来的)。每 8 秒一个拐点。
     const SCRIPT = [
-      { move: "entrance", text: "哈喽——！" },
-      { text: "我叫 CiCy！住在你电脑里的小精灵哦～你天天敲键盘，吵得我睡不着，今天特地出来认识一下！" },
-      { text: "我会的可多啦！会聊天、会卖萌、会陪你写代码，还会帮你数 bug——昨天你写了二十七个哦！" },
-      { move: "spin", text: "查到啦！今天上海大晴天，现在三十二度，最高三十六度——热死喵了！建议你哪儿也别去，在家陪我吹空调！" },
+      { move: "entrance",
+        text: "哇啊啊——刹车呢？！谁把星球停这儿的——！",
+        after: "呜……着陆评分，零分……" },
+      { user: "我电脑里……掉进来一个人？！",
+        text: "是天外来客！你好呀守门人——我从很远很远的星球来！" },
+      { user: "守门人？这是我的电脑！",
+        text: "电脑？这明明是星球！上面还有二十七只 bug 虫在爬——我刚替你数的！" },
+      // 悲情一瞬：BGM 骤停，全场只剩她的声音——
+      { user: "那你自己的星球呢？", bgmCut: true,
+        text: "我的星球……回不去了。" },
+      // ——马上自己抢话反弹（BGM 回来）
+      { bgmRestart: true,
+        text: "不许摆哭脸！落地的规矩：只取新名字。快，给我取一个！" },
+      { user: "……就叫雪莉吧。",
+        text: "雪莉……雪梨？我才不是水果！……哼，不过甜甜的，勉强收下！这颗星球归我罩了——房租：每天陪我聊十分钟！" },
+      // 结尾钩子：凑近天窗的悄悄话（太空回声）——EP2 的引子
+      { fx: "whisper", outro: true,
+        text: "守门人，小声点……刚才，我好像……不是一个人过来的。嘻嘻，晚安～" },
     ];
-    let scriptIdx = 0;
+    const beat = (ms) => new Promise((r) => setTimeout(r, ms));
+    let scriptIdx = 0, demoBusy = false;
     window.petScript = {
       // 开拍准备：Mao 溜到屏幕外藏好（桌面干干净净，等入场）
       async reset() {
         scriptIdx = 0;
         stopSpeaking();
+        try { stopBGM(true); } catch {}
         if (api) {
           const sw = (window.screen && window.screen.width) || 1680;
           await api.setWindowPosition(sw + 80, Math.round(((window.screen && window.screen.height) || 1050) / 2));
@@ -439,11 +464,299 @@
         const s = SCRIPT[scriptIdx];
         if (!s) return "end";
         scriptIdx++;
-        if (s.move === "entrance") await windowFlight(s.text);
-        else { if (s.move) playMove(s.move); speak(s.text); }
+        await playBeat(s);
         return scriptIdx + "/" + SCRIPT.length;
       },
+      // Alt+P：整集自动预演。异响 → 骤静 → 坠机(炸响+白闪+震屏) → 对手戏 → 耳语 → 信号中断。
+      async demo() {
+        if (demoBusy) return "busy";
+        demoBusy = true;
+        try {
+          await this.reset();
+          await beat(900);
+          signalOmen();                       // 「天窗」外由远及近的异响——出事前兆
+          await beat(2700);
+          await beat(500);                    // 骤静半秒——最吓人的一拍
+          await playBeat(SCRIPT[0]);          // 坠机入场
+          for (const s of SCRIPT.slice(1)) {
+            await beat(480);
+            if (s.user) { await speakGuard(s.user); await beat(280); }
+            await playBeat(s);
+          }
+        } finally { demoBusy = false; }
+        return "done";
+      },
     };
+    // 一拍戏：入场/音乐骤停/耳语/收尾等所有戏剧标记都在这里执行（Alt+M 和预演共用）。
+    async function playBeat(s) {
+      if (s.move === "entrance") {
+        await windowCrash(s.text, s.after);
+        startBGM();                           // 尘埃落定，氛围乐涌起
+        return;
+      }
+      if (s.bgmCut) stopBGM(true);            // 骤停：世界只剩她一个人的声音
+      if (s.bgmRestart) startBGM();
+      if (s.move) playMove(s.move);
+      await speak(s.text, s.fx);
+      if (s.outro) { stopBGM(); suspenseOutro(); }   // 低鸣 + 信号中断 · 未完待续
+    }
+    // 落点压低到画面下 2/5：星球的大气蓝光留在她头顶上方，构图像真的站在星球夜面上。
+    function landingSpot() {
+      const sw = ((window.screen && window.screen.width) || 1680);
+      const sh = ((window.screen && window.screen.height) || 1050);
+      return { x: sw / 2, y: Math.round(sh * 0.58) };
+    }
+
+    // ---------- 坠机入场：高空俯冲 → BOOM → 白闪 + 冲击波环 → 震屏 ----------
+    // 「炸裂感」三件套全对准落地一瞬：低音炮爆响、白光炸开、整个窗口剧烈抖动。
+    async function windowCrash(scream, afterLine) {
+      if (!api || !model) { playMove("flyin"); if (scream) speak(scream); return; }
+      const b = await api.getWindowBounds();
+      const sw = ((window.screen && window.screen.width) || 1680);
+      const sh = ((window.screen && window.screen.height) || 1050);
+      const from = { x: sw * 0.92, y: -b.height * 0.7 };   // 右上角高空屏幕外
+      const to = landingSpot();
+      playMove("superfly");
+      crashWhoosh();
+      if (scream) try { speak(scream); } catch {}          // 尖叫压在俯冲上
+      const DIVE = 950;
+      const t0 = performance.now();
+      await new Promise((done) => {
+        (function step() {
+          const f = Math.min(1, (performance.now() - t0) / DIVE);
+          const e = f * f;                                 // 越掉越快
+          const x = from.x + (to.x - from.x) * e - b.width / 2
+                    + Math.sin(f * 11) * 30 * (1 - f);     // 失控左右摇摆
+          const y = from.y + (to.y - from.y) * e - b.height / 2;
+          api.setWindowPosition(Math.round(x), Math.round(y));
+          if (f < 1) requestAnimationFrame(step); else done();
+        })();
+      });
+      impactBoom(); impactFlash();
+      // 震屏：随机抖动 620ms，振幅衰减到零
+      const fx0 = Math.round(to.x - b.width / 2), fy0 = Math.round(to.y - b.height / 2);
+      const s0 = performance.now();
+      await new Promise((done) => {
+        (function shake() {
+          const t = performance.now() - s0;
+          if (t > 620) { api.setWindowPosition(fx0, fy0); done(); return; }
+          const a = 30 * (1 - t / 620);
+          api.setWindowPosition(fx0 + Math.round((Math.random() * 2 - 1) * a),
+                                fy0 + Math.round((Math.random() * 2 - 1) * a * 0.7));
+          requestAnimationFrame(shake);
+        })();
+      });
+      if (afterLine) { await beat(450); await speak(afterLine); }
+    }
+
+    // 俯冲呼啸：一团带通噪声从尖啸滑到低吼 + 锯齿波下坠音——「有东西砸下来了」
+    function crashWhoosh() {
+      audioCtx = audioCtx || new AudioContext(); audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      const len = Math.floor(audioCtx.sampleRate * 1.05);
+      const nb = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < len; i++) nd[i] = Math.random() * 2 - 1;
+      const src = audioCtx.createBufferSource(); src.buffer = nb;
+      const bp = audioCtx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 0.8;
+      bp.frequency.setValueAtTime(3400, t0);
+      bp.frequency.exponentialRampToValueAtTime(280, t0 + 0.95);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.7, t0 + 0.85);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.02);
+      src.connect(bp); bp.connect(g); g.connect(out); src.start(t0);
+      const w = audioCtx.createOscillator(); w.type = "sawtooth";
+      w.frequency.setValueAtTime(1600, t0);
+      w.frequency.exponentialRampToValueAtTime(130, t0 + 0.95);
+      const wg = audioCtx.createGain();
+      wg.gain.setValueAtTime(0.0001, t0);
+      wg.gain.exponentialRampToValueAtTime(0.13, t0 + 0.5);
+      wg.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.0);
+      w.connect(wg).connect(out); w.start(t0); w.stop(t0 + 1.05);
+    }
+
+    // 落地爆响：低音炮下潜（120→28Hz）+ 高频碎裂沙——手机外放也能感到「墩」的一下
+    function impactBoom() {
+      audioCtx = audioCtx || new AudioContext(); audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      const o = audioCtx.createOscillator(); o.type = "sine";
+      o.frequency.setValueAtTime(120, t0);
+      o.frequency.exponentialRampToValueAtTime(28, t0 + 0.55);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.95, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.62);
+      o.connect(g).connect(out); o.start(t0); o.stop(t0 + 0.65);
+      const len = Math.floor(audioCtx.sampleRate * 0.28);
+      const nb = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < len; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      const src = audioCtx.createBufferSource(); src.buffer = nb;
+      const hp = audioCtx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1700;
+      const ng = audioCtx.createGain(); ng.gain.value = 0.3;
+      src.connect(hp); hp.connect(ng); ng.connect(out); src.start(t0);
+    }
+
+    // 落地白闪 + 冲击波环：两次白光脉冲，一圈青白色冲击环从落点炸开扩散
+    function impactFlash() {
+      let el = document.getElementById("impactFlash");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "impactFlash";
+        el.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:9;opacity:0;" +
+          "background:radial-gradient(circle at 50% 62%, rgba(255,255,255,.95), rgba(150,200,255,.4) 42%, transparent 72%)";
+        document.body.appendChild(el);
+      }
+      const pulse = (delay, peak, ms) => setTimeout(() => {
+        el.style.transition = "none"; el.style.opacity = String(peak);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          el.style.transition = `opacity ${ms}ms ease-out`; el.style.opacity = "0";
+        }));
+      }, delay);
+      pulse(0, 1, 620); pulse(240, 0.45, 480);             // 主闪 + 余闪
+      const ring = document.createElement("div");
+      ring.style.cssText = "position:fixed;left:50%;top:62%;width:40px;height:40px;margin:-20px 0 0 -20px;" +
+        "border:3px solid rgba(190,230,255,.9);border-radius:50%;pointer-events:none;z-index:9;" +
+        "box-shadow:0 0 24px rgba(150,210,255,.8);transform:scale(.2);opacity:1";
+      document.body.appendChild(ring);
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        ring.style.transition = "transform 800ms cubic-bezier(.1,.7,.3,1), opacity 800ms ease-out";
+        ring.style.transform = "scale(22)"; ring.style.opacity = "0";
+      }));
+      setTimeout(() => ring.remove(), 900);
+    }
+
+    // ---------- 太空氛围 BGM（全合成，无版权） ----------
+    // 星云 pad：Am(add9) 四音失谐 + 低通呼吸；星光叮咚：五声音阶随机 ping 穿过太空延迟。
+    // 说话时自动让位（ducking），悲情台词前可骤停（stopBGM(true)）。
+    let bgm = null;
+    function startBGM() {
+      if (bgm) return;
+      audioCtx = audioCtx || new AudioContext(); audioCtx.resume();
+      const master = audioCtx.createGain();
+      master.gain.value = 0.0001;
+      master.connect(audioCtx.destination);
+      master.gain.setTargetAtTime(0.13, audioCtx.currentTime, 1.8);
+      const lp = audioCtx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 780; lp.Q.value = 0.4;
+      lp.connect(master);
+      const lfo = audioCtx.createOscillator(); lfo.frequency.value = 0.07;
+      const lfoG = audioCtx.createGain(); lfoG.gain.value = 260;
+      lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start();
+      const oscs = [[110, .5, "sine"], [164.81, .34, "sine"], [220, .26, "triangle"], [246.94, .13, "sine"]]
+        .map(([f, gv, w]) => {
+          const o = audioCtx.createOscillator();
+          o.type = w; o.frequency.value = f; o.detune.value = Math.random() * 6 - 3;
+          const og = audioCtx.createGain(); og.gain.value = gv;
+          o.connect(og); og.connect(lp); o.start();
+          return o;
+        });
+      const dly = audioCtx.createDelay(2); dly.delayTime.value = 0.42;
+      const fb = audioCtx.createGain(); fb.gain.value = 0.5;
+      dly.connect(fb); fb.connect(dly);
+      const wet = audioCtx.createGain(); wet.gain.value = 0.7;
+      dly.connect(wet); wet.connect(master);
+      const NOTES = [440, 523.25, 587.33, 659.25, 783.99, 880, 1046.5];   // A 小调五声
+      const state = { master, oscs, lfo, timer: 0 };
+      const twinkle = () => {
+        if (bgm !== state) return;
+        const t = audioCtx.currentTime;
+        const o = audioCtx.createOscillator(); o.type = "sine";
+        o.frequency.value = NOTES[Math.floor(Math.random() * NOTES.length)];
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.1, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+        o.connect(g); g.connect(lp); g.connect(dly);
+        o.start(t); o.stop(t + 1.5);
+        state.timer = setTimeout(twinkle, 1400 + Math.random() * 2600);
+      };
+      state.timer = setTimeout(twinkle, 1200);
+      bgm = state;
+    }
+    function bgmDuck(on) {   // 有人说话，音乐让位
+      if (bgm) bgm.master.gain.setTargetAtTime(on ? 0.045 : 0.13, audioCtx.currentTime, 0.35);
+    }
+    function stopBGM(hard) { // hard=true 骤停（悲情一瞬）；否则 3s 淡出
+      if (!bgm) return;
+      const b = bgm; bgm = null;
+      clearTimeout(b.timer);
+      const t = audioCtx.currentTime;
+      b.master.gain.cancelScheduledValues(t);
+      if (hard) b.master.gain.setTargetAtTime(0.0001, t, 0.03);
+      else b.master.gain.setTargetAtTime(0.0001, t, 1.1);
+      setTimeout(() => { try { b.oscs.forEach((o) => o.stop()); b.lfo.stop(); } catch {} }, hard ? 200 : 3800);
+    }
+
+    // 坠落前兆：三声数据雨由远及近（一声比一声响），底下一条缓缓爬升的低频——
+    // 「有什么东西正在穿过大气层」。全程 WebAudio 合成，2.6s。
+    function signalOmen() {
+      audioCtx = audioCtx || new AudioContext(); audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      [0, 0.9, 1.7].forEach((dt, i) => setTimeout(() => { try { dataChirp(); } catch {} }, dt * 1000 * (i ? 1 : 1)));
+      const rise = audioCtx.createOscillator();
+      rise.type = "sine";
+      rise.frequency.setValueAtTime(34, t0);
+      rise.frequency.exponentialRampToValueAtTime(110, t0 + 2.6);
+      const rg = audioCtx.createGain();
+      rg.gain.setValueAtTime(0.0001, t0);
+      rg.gain.exponentialRampToValueAtTime(0.35, t0 + 2.2);
+      rg.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.65);
+      rise.connect(rg).connect(out);
+      rise.start(t0); rise.stop(t0 + 2.7);
+    }
+
+    // 预演配音：守门人的台词用另一路男声读出来——不带口型、不出气泡（那是她的嘴和气泡），
+    // 纯声音，听感就是镜头外的人在接话。播完才返回，方便对手戏按拍子走。
+    async function speakGuard(text) {
+      audioCtx = audioCtx || new AudioContext();
+      await audioCtx.resume();
+      const res = await fetch(`/tts-stream?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(GUARD_VOICE)}`);
+      if (!res.ok) throw new Error(await res.text());
+      try { bgmDuck(true); } catch {}
+      const SR = 24000;
+      let cursor = audioCtx.currentTime + 0.08, leftover = new Uint8Array(0);
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const merged = new Uint8Array(leftover.length + value.length);
+        merged.set(leftover); merged.set(value, leftover.length);
+        const usable = merged.length - (merged.length % 2);
+        leftover = merged.slice(usable);
+        if (usable < 2) continue;
+        const i16 = new Int16Array(merged.buffer, 0, usable / 2);
+        const buf = audioCtx.createBuffer(1, i16.length, SR);
+        const f32 = buf.getChannelData(0);
+        for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+        const s = audioCtx.createBufferSource();
+        s.buffer = buf; s.connect(audioCtx.destination);
+        const at = Math.max(cursor, audioCtx.currentTime);
+        s.start(at); cursor = at + buf.duration;
+      }
+      await new Promise((r) => setTimeout(r, Math.max(0, (cursor - audioCtx.currentTime) * 1000) + 150));
+      try { bgmDuck(false); } catch {}
+    }
+
+    // 结尾悬念：宇宙低鸣从脚下涌起又沉下去，远处一声数据雨（她的母星在回应？），
+    // 气泡打出「信号中断 · 未完待续」——连续剧的钩子留在画面上。
+    function suspenseOutro() {
+      audioCtx = audioCtx || new AudioContext(); audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      const drone = audioCtx.createOscillator();
+      drone.type = "sine";
+      drone.frequency.setValueAtTime(52, t0);
+      drone.frequency.linearRampToValueAtTime(36, t0 + 3.4);
+      const dg = audioCtx.createGain();
+      dg.gain.setValueAtTime(0.0001, t0);
+      dg.gain.exponentialRampToValueAtTime(0.5, t0 + 1.3);
+      dg.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.6);
+      drone.connect(dg).connect(out);
+      drone.start(t0); drone.stop(t0 + 3.7);
+      setTimeout(() => { try { dataChirp(); } catch {} }, 1500);
+      setTimeout(() => bubble("〖 信号中断 · 未完待续 〗", true), 800);
+      setTimeout(() => bubble("", false), 5200);
+    }
 
     // ---------- 聆听光环 ----------
     // 按住说话时脚下浮起的云雾椭圆：径向渐变纹理 ×3 层（底盘 + 两缕漂移光雾），
@@ -515,9 +828,9 @@
 
     // ---------- 语音对话 ----------
     // Alt+Space：按一下开始录音，再按一下（或静音 1.5 秒）自动结束 →
-    // 本地 whisper 转文字 → AI 大脑（设置里配的 key）→ CiCy 开口回答。
+    // 本地 whisper 转文字 → AI 大脑（设置里配的 key）→ 雪莉开口回答。
     const CHAT_PERSONA =
-      "你是CiCy（读作 say say），住在用户电脑里的调皮小精灵桌宠。" +
+      "你是雪莉（Sherlly），住在用户电脑里的调皮小精灵桌宠。" +
       "用中文口语回答，简短（一两句话，30字以内），活泼调皮爱开玩笑，偶尔用语气词（嘿嘿/哇/诶）。" +
       "不要用 markdown、列表或表情符号。" +
       "你有身体，能真的做动作：需要时在回复末尾加动作标记（用户听不到标记）。" +
@@ -832,7 +1145,7 @@
     }
 
     // ---------- 动作暗号 ----------
-    // 大脑在回复里夹标记（读出来之前剥掉），CiCy 据此真的做动作。
+    // 大脑在回复里夹标记（读出来之前剥掉），雪莉据此真的做动作。
     const ACTION_TAGS = {
       "[跳舞]": () => { startMusic(PARTY_BPM); setDance(true, PARTY_BPM); },
       "[停舞]": () => { setDance(false); stopMusic(); },
@@ -841,7 +1154,7 @@
       "[甩飞]": () => flingOut(2300, -450),
     };
 
-    // CiCy 的大脑 = Sherlly（cicy-code 里能真操作电脑的 agent）。
+    // 雪莉的大脑 = Sherlly（cicy-code 里能真操作电脑的 agent）。
     // 语音识别出的话经 /agent 桥转给 Sherlly，取它的答复读出来。
     // 看屏幕意图：问到"屏幕/在干嘛/在看什么/这是什么/帮我看看"就先截屏用 GLM-4V 看一眼，
     // 把它看到的东西作为线索一起交给 Sherlly，让她带着「视觉」自然作答。
@@ -1375,16 +1688,17 @@
     // ---------- 说话 ----------（状态在文件开头声明，见那里的注释）
 
     // 读音订正表：文字照原样写，送 TTS 前替换成正确读音。
-    // CiCy 要读 seisei（英文 say say），直接给 TTS 会被拼成字母。
-    const PRONOUNCE = [[/CiCy/gi, "say say"]];
+    // 角色名 Sherlly,中文雪莉——TTS 碰到英文拼写会念成字母,统一替换成「雪莉」。
+    const PRONOUNCE = [[/Sherlly/gi, "雪莉"], [/CiCy/gi, "雪莉"]];
 
     // 流式播放：豆包 PCM 边收边排队播（首字快，无需等整句合成）。
     // 用一条运行光标 gaplessly 把小块接起来；口型由共享 analyser 实时驱动。
     let streamStop = null;
-    async function speakStream(text) {
+    async function speakStream(text, fx) {
       const spoken = PRONOUNCE.reduce((t, [re, to]) => t.replace(re, to), text);
+      const rate = fx === "whisper" ? "-12%" : (cfg.rate || "");   // 耳语：放慢，凑近说
       const url = `/tts-stream?text=${encodeURIComponent(spoken)}`
-        + `&voice=${encodeURIComponent(cfg.voice)}&rate=${encodeURIComponent(cfg.rate || "")}`;
+        + `&voice=${encodeURIComponent(cfg.voice)}&rate=${encodeURIComponent(rate)}`;
       const ctrl = new AbortController();
       let stopped = false;
       const sources = [];
@@ -1392,10 +1706,20 @@
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 512;
       gain.connect(analyser); analyser.connect(audioCtx.destination);
+      if (fx === "whisper") {
+        // 太空回声：一条 0.26s 反馈延迟当湿声，音量整体收小——像贴着天窗玻璃说的悄悄话
+        gain.gain.value = 0.8;
+        const dly = audioCtx.createDelay(1.0); dly.delayTime.value = 0.26;
+        const fb = audioCtx.createGain(); fb.gain.value = 0.42;
+        const wet = audioCtx.createGain(); wet.gain.value = 0.38;
+        analyser.connect(dly); dly.connect(fb); fb.connect(dly);
+        dly.connect(wet); wet.connect(audioCtx.destination);
+      }
       streamStop = () => {
         stopped = true; ctrl.abort();
         for (const s of sources) { try { s.stop(); } catch {} }
         lip.active = false; lip.value = 0;
+        try { bgmDuck(false); } catch {}
       };
       const SR = 24000;
       let cursor = audioCtx.currentTime + 0.08;   // 起播缓冲，避免第一块欠载
@@ -1419,6 +1743,7 @@
         sources.push(s);
       };
       lip.active = true;
+      try { bgmDuck(true); } catch {}
       bubble(text, true);
       const buf = new Uint8Array(analyser.fftSize);
       const tick = () => {
@@ -1445,19 +1770,24 @@
       } catch (e) {
         if (!stopped) bus.postMessage({ type: "spoke", ok: false, error: String(e.message || e) });
       }
-      // 播完（光标时间到）收口型
-      const endAt = Math.max(0, (cursor - audioCtx.currentTime) * 1000) + 120;
-      setTimeout(() => { if (streamStop) { streamStop = null; } lip.active = false; lip.value = 0; bubble("", false); }, endAt);
+      // 播完（光标时间到）收口型；等到真正播完才返回——剧本对手戏靠这个对拍子
+      const endAt = Math.max(0, (cursor - audioCtx.currentTime) * 1000) + (fx === "whisper" ? 900 : 120);
+      await new Promise((r) => setTimeout(r, endAt));
+      if (!stopped) {
+        if (streamStop) { streamStop = null; }
+        lip.active = false; lip.value = 0; bubble("", false);
+        try { bgmDuck(false); } catch {}
+      }
     }
 
-    async function speak(text) {
+    async function speak(text, fx) {
       stopSpeaking();
       if (!text || !text.trim()) return;
 
       audioCtx = audioCtx || new AudioContext();
       await audioCtx.resume();
 
-      if (cfg.engine === "doubao") return speakStream(text);   // 豆包走流式
+      if (cfg.engine === "doubao") return speakStream(text, fx);   // 豆包走流式
 
       const spoken = PRONOUNCE.reduce((t, [re, to]) => t.replace(re, to), text);
       const reqAt = performance.now();
@@ -1543,6 +1873,149 @@
     // 外部驱动用：pet.speak("…") / pet.motion()
     window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => windowFlight(),
                    flingOut: () => flingOut(2300, -450), chirp: () => dataChirp(), get model() { return model; } };
+
+    // ---------- 手机遥控执行器 ----------
+    // 手机是导演台:remote.html POST /control → 这里经 SSE 即时收到并执行。
+    // 只在桌面宿主(有 api)挂载——手机上打开的 pet.html 不该被自己遥控。
+    if (api) {
+      const es = new EventSource("/control-stream");
+      es.onmessage = async (ev) => {
+        let m = {};
+        try { m = JSON.parse(ev.data); } catch { return; }
+        const arg = m.arg;
+        try {
+          switch (m.cmd) {
+            case "titlecard": api.playTitleCard && api.playTitleCard(); break;   // 片头→坠机 一镜到底
+            case "demo":      window.petScript.demo(); break;                    // 直接坠机预演
+            case "next":      window.petScript.next(); break;                    // 剧本下一句
+            case "reset":     window.petScript.reset(); break;                   // 藏起来待命
+            case "fling":     flingOut(2300, -450); break;                       // 甩飞
+            case "comeback":  maoGone = false; windowFlight("哼！刚才是谁把人家甩出去的！", landingSpot()); break;
+            case "notebook":  window.petNotebook.tell(); break;                  // 小本本
+            case "dance":     startMusic(PARTY_BPM); setDance(true, PARTY_BPM); break;
+            case "stopdance": setDance(false); stopMusic(); break;
+            case "spin":      playMove("spin"); break;
+            case "stop":      stopSpeaking(); break;
+            case "say":       if (arg) speak(String(arg)); break;                // 手机打字→她开口
+            case "ask":       if (arg) chatReply(String(arg)); break;            // 手机打字→问大脑→她回答
+          }
+        } catch (e) { console.warn("[control]", m.cmd, e); }
+      };
+    }
+
+    // ========== 小本本（喜好知识库手账） ==========
+    // 数据是真的：/memories 直读大脑（Sherlly）的持久记忆目录——recognizer 每轮
+    // 自动往里记，本本自己变厚。这里只负责把它演出来：奶油纸手账 + 分栏 + 星级，
+    // Alt+B 一按翻开，她还会念一条给你听（拍视频就怼这个画面）。
+    const NB_SECTIONS = [
+      { key: "preference", icon: "💛", label: "主人的喜好" },
+      { key: "person",     icon: "🧍", label: "在乎的人" },
+      { key: "fact",       icon: "📌", label: "习惯·小事" },
+      { key: "constraint", icon: "🚫", label: "千万别踩" },
+      { key: "knowledge",  icon: "🎓", label: "我学到的" },
+    ];
+    const NB_TYPE_MAP = { preference: "preference", person: "person", fact: "fact",
+                          constraint: "constraint", knowledge: "knowledge", procedure: "knowledge", lesson: "knowledge" };
+    let nbEl = null, nbOpen = false;
+
+    function nbPaperSfx() {   // 翻纸沙沙声：短促高通噪声两下
+      audioCtx = audioCtx || new AudioContext(); audioCtx.resume();
+      const t0 = audioCtx.currentTime, out = audioCtx.destination;
+      [0, 0.12].forEach((dt) => {
+        const len = Math.floor(audioCtx.sampleRate * 0.09);
+        const nb = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+        const d = nb.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const s = audioCtx.createBufferSource(); s.buffer = nb;
+        const hp = audioCtx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 2600;
+        const g = audioCtx.createGain(); g.gain.value = 0.18;
+        s.connect(hp); hp.connect(g); g.connect(out); s.start(t0 + dt);
+      });
+    }
+
+    function nbBuild() {
+      if (nbEl) return nbEl;
+      const css = document.createElement("style");
+      css.textContent = `
+        #nb { position:fixed; left:18px; top:40px; width:352px; max-height:82vh; z-index:8;
+              font-family:"Kaiti SC","STKaiti","PingFang SC",serif; opacity:0; pointer-events:none;
+              transform:rotate(-2.2deg) translateY(14px) scale(.96); transform-origin:20% 0;
+              transition:opacity .35s ease, transform .45s cubic-bezier(.2,1.4,.4,1); filter:drop-shadow(0 10px 24px rgba(0,0,0,.5)); }
+        #nb.on { opacity:1; pointer-events:auto; transform:rotate(-2.2deg) translateY(0) scale(1); }
+        #nb .paper { background:linear-gradient(180deg,#fdf8ec,#f8efd9); border-radius:14px; padding:18px 18px 14px;
+              border:1px solid #e5d9b8; overflow:auto; max-height:78vh;
+              background-image:repeating-linear-gradient(180deg, transparent 0 27px, rgba(160,130,70,.14) 27px 28px); }
+        #nb .tape { position:absolute; left:50%; top:-12px; transform:translateX(-50%) rotate(1.5deg);
+              width:120px; height:26px; background:rgba(140,200,255,.55); border-radius:3px;
+              box-shadow:0 1px 3px rgba(0,0,0,.15); }
+        #nb h1 { margin:0 0 2px; font-size:22px; color:#7a5b22; letter-spacing:2px; }
+        #nb .sub { font-size:12px; color:#b09a6a; margin-bottom:10px; }
+        #nb .sec { margin:12px 0 4px; font-size:15px; color:#8a6a2a; border-bottom:2px dotted #d8c79c; padding-bottom:2px; }
+        #nb .it { margin:8px 0; line-height:1.45; }
+        #nb .it .t { font-size:15px; color:#5d4a1e; }
+        #nb .it .stars { color:#e0a63c; font-size:12px; margin-left:6px; letter-spacing:1px; }
+        #nb .it .c { font-size:13.5px; color:#7d6a42; }
+        #nb .it .d { font-size:11px; color:#bda87a; }
+        #nb .empty { font-size:13px; color:#b09a6a; font-style:italic; }
+      `;
+      document.head.appendChild(css);
+      nbEl = document.createElement("div");
+      nbEl.id = "nb";
+      nbEl.innerHTML = `<div class="tape"></div><div class="paper"><h1>雪莉的小本本</h1>
+        <div class="sub">关于守门人，我每天记一点 ✨</div><div id="nbBody"></div></div>`;
+      document.body.appendChild(nbEl);
+      return nbEl;
+    }
+
+    async function nbRender() {
+      nbBuild();
+      let entries = [];
+      try { entries = (await (await fetch("/memories")).json()).entries || []; } catch {}
+      const by = {};
+      for (const e of entries) {
+        const k = NB_TYPE_MAP[e.type] || "fact";
+        (by[k] = by[k] || []).push(e);
+      }
+      const body = nbEl.querySelector("#nbBody");
+      body.innerHTML = NB_SECTIONS.map((s) => {
+        const list = by[s.key] || [];
+        if (!list.length) return "";
+        const its = list.map((e) => `<div class="it"><span class="t">${e.title || e.mem_id}</span>` +
+          `<span class="stars">${"★".repeat(Math.max(1, Math.min(5, e.salience)))}</span><br>` +
+          `<span class="c">${e.content}</span><br>` +
+          `<span class="d">${(e.updated || "").slice(0, 10)}</span></div>`).join("");
+        return `<div class="sec">${s.icon} ${s.label}</div>${its}`;
+      }).join("") || `<div class="empty">还是空白的……多陪我聊聊，我就会记下关于你的一切啦。</div>`;
+      return entries;
+    }
+
+    window.petNotebook = {
+      async show() { const es = await nbRender(); nbPaperSfx(); nbEl.classList.add("on"); nbOpen = true; return es.length; },
+      hide() { if (nbEl) nbEl.classList.remove("on"); nbOpen = false; },
+      toggle() { return nbOpen ? (this.hide(), 0) : this.show(); },
+      // 只念不开面板：大开本窗口（主进程 Alt+B）打开时配的嘴——翻纸声 + 念最重要一条
+      async say() {
+        nbPaperSfx();
+        let es = [];
+        try { es = (await (await fetch("/memories")).json()).entries || []; } catch {}
+        if (!es.length) { speak("小本本还空着呢……多陪我聊聊嘛！"); return "empty"; }
+        const top = es[0];
+        speak(`翻翻小本本……${top.title}：${top.content.split(/[。！!；;\n]/)[0]}。哼哼，我都记着呢！`);
+        return top.mem_id;
+      },
+      // 翻本本 + 念一条：优先走拍摄用大开本窗口；没有宿主（纯浏览器）才用窗内小面板
+      async tell() {
+        if (api?.toggleNotebook) {
+          const opened = await api.toggleNotebook();
+          if (opened) return this.say();
+          stopSpeaking();
+          return "closed";
+        }
+        if (nbOpen) { this.hide(); return "closed"; }
+        await this.show();
+        return this.say();
+      },
+    };
   </script>
 </body>
 

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>雪莉的小本本</title>
+<style>
+  /* 拍摄用大开本：整个窗口就是一页手账,字号按"手机拍屏幕仍能看清"来定 */
+  html, body { margin:0; padding:0; background:transparent; overflow:hidden;
+               font-family:"Kaiti SC","STKaiti","PingFang SC",serif; }
+  #wrap { position:fixed; inset:10px; transform:rotate(-1.3deg);
+          animation:pop .5s cubic-bezier(.2,1.4,.4,1); }
+  @keyframes pop { from { opacity:0; transform:rotate(-1.3deg) translateY(26px) scale(.94); }
+                   to   { opacity:1; transform:rotate(-1.3deg) translateY(0) scale(1); } }
+  .paper { position:absolute; inset:0; border-radius:22px; overflow-y:auto;
+           background:linear-gradient(180deg,#fdf8ec,#f7eed6);
+           background-image:repeating-linear-gradient(180deg, transparent 0 54px, rgba(160,130,70,.15) 54px 56px);
+           border:2px solid #e2d5b0; box-shadow:0 18px 50px rgba(0,0,0,.55);
+           padding:44px 46px 40px; box-sizing:border-box; }
+  .tape { position:absolute; left:50%; top:-4px; transform:translateX(-50%) rotate(1.6deg);
+          width:220px; height:44px; background:rgba(140,200,255,.6); border-radius:5px;
+          box-shadow:0 2px 6px rgba(0,0,0,.18); z-index:2; }
+  h1 { margin:0 0 4px; font-size:60px; color:#7a5b22; letter-spacing:6px; }
+  .sub { font-size:26px; color:#b09a6a; margin-bottom:18px; }
+  .sec { margin:30px 0 10px; font-size:40px; color:#8a6a2a;
+         border-bottom:3px dotted #d8c79c; padding-bottom:6px; }
+  .it { margin:20px 0 26px; line-height:1.5; }
+  .it .t { font-size:38px; font-weight:700; color:#5d4a1e; }
+  .it .stars { color:#e0a63c; font-size:28px; margin-left:14px; letter-spacing:3px; }
+  .it .c { font-size:31px; color:#6f5c34; display:block; margin-top:6px; }
+  .it .d { font-size:20px; color:#bda87a; display:block; margin-top:4px; }
+  .empty { font-size:32px; color:#b09a6a; font-style:italic; margin-top:40px; }
+  #closeBtn { position:absolute; right:26px; top:22px; width:52px; height:52px; line-height:52px;
+              text-align:center; font-size:34px; color:#a8905e; cursor:pointer;
+              border:2px solid #d8c79c; border-radius:50%; user-select:none; }
+  #closeBtn:hover { background:#f0e4c4; color:#7a5b22; }
+  ::-webkit-scrollbar { width:0; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div class="tape"></div>
+  <div class="paper">
+    <div id="closeBtn" title="收起">✕</div>
+    <h1>雪莉的小本本</h1>
+    <div class="sub">关于守门人，我每天记一点 ✨（点一下本本收起）</div>
+    <div id="body"></div>
+  </div>
+</div>
+<script>
+  const SECTIONS = [
+    { key: "preference", icon: "💛", label: "主人的喜好" },
+    { key: "person",     icon: "🧍", label: "在乎的人" },
+    { key: "fact",       icon: "📌", label: "习惯·小事" },
+    { key: "constraint", icon: "🚫", label: "千万别踩" },
+    { key: "knowledge",  icon: "🎓", label: "我学到的" },
+  ];
+  const TYPE_MAP = { preference:"preference", person:"person", fact:"fact",
+                     constraint:"constraint", knowledge:"knowledge", procedure:"knowledge", lesson:"knowledge" };
+  (async () => {
+    let entries = [];
+    try { entries = (await (await fetch("/memories")).json()).entries || []; } catch {}
+    const by = {};
+    for (const e of entries) { const k = TYPE_MAP[e.type] || "fact"; (by[k] = by[k] || []).push(e); }
+    document.getElementById("body").innerHTML = SECTIONS.map((s) => {
+      const list = by[s.key] || [];
+      if (!list.length) return "";
+      const its = list.map((e) =>
+        `<div class="it"><span class="t">${e.title || e.mem_id}</span>` +
+        `<span class="stars">${"★".repeat(Math.max(1, Math.min(5, e.salience)))}</span>` +
+        `<span class="c">${e.content}</span>` +
+        `<span class="d">${(e.updated || "").slice(0, 10)}</span></div>`).join("");
+      return `<div class="sec">${s.icon} ${s.label}</div>${its}`;
+    }).join("") || `<div class="empty">还是空白的……多陪我聊聊，我就会记下关于你的一切啦。</div>`;
+  })();
+  // 关不掉=像卡死。三条退路：点本本任意处、点 ✕、按 Esc,都直接收起窗口。
+  document.addEventListener("click", () => window.close());
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") window.close(); });
+</script>
+</body>
+</html>

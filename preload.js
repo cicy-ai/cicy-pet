@@ -97,6 +97,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onPetHit: (cb) => ipcRenderer.on('pet-hit', (e, data) => cb(data)),
     onModelConfigUpdate: (cb) => ipcRenderer.on('model-config-update', (e, config) => cb(config)),
 
+    // Notebook (小本本大开本窗口)
+    toggleNotebook: () => ipcRenderer.invoke('toggle-notebook'),
+    // 实时片头(播完自动接坠机预演)
+    playTitleCard: () => ipcRenderer.invoke('play-titlecard'),
+
     // External links
     openExternal: (url) => ipcRenderer.invoke('open-external', url),
 

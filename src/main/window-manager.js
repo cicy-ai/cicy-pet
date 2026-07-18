@@ -83,7 +83,10 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
                 webPreferences: {
                     nodeIntegration: false,
                     contextIsolation: true,
-                    preload: deps.path.join(deps.basePath, 'preload.js')
+                    preload: deps.path.join(deps.basePath, 'preload.js'),
+                    // 拍摄剧本会把窗口藏到屏幕外再飞进来——离屏时 macOS 会掐 rAF，
+                    // 飞行动画会卡死在半路。关掉节流，离屏也照常出帧。
+                    backgroundThrottling: false
                 }
             });
             ctx.petWindow.setAlwaysOnTop(true, 'screen-saver');

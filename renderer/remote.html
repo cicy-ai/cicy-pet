@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>雪莉 · 导演台</title>
+<style>
+  /* 手机遥控器:大按钮、暗色、拇指友好。POST /control → 桌面雪莉即时执行 */
+  :root { --bg:#05070f; --card:#0d1322; --line:#1c2740; --txt:#cfe4ff; --dim:#86a8d8; --hot:#8cdcff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--txt);
+              font-family:"PingFang SC",system-ui,sans-serif; }
+  .wrap { max-width:520px; margin:0 auto; padding:18px 16px 40px; }
+  h1 { font-size:20px; letter-spacing:6px; margin:6px 0 2px; }
+  .sub { color:var(--dim); font-size:12px; margin-bottom:16px; }
+  .sec { color:var(--dim); font-size:13px; letter-spacing:2px; margin:18px 0 8px; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  button { background:var(--card); border:1px solid var(--line); color:var(--txt);
+           border-radius:14px; padding:16px 8px; font-size:16px; line-height:1.3;
+           display:flex; flex-direction:column; align-items:center; gap:4px; }
+  button:active { background:#16203a; transform:scale(.97); }
+  button .ic { font-size:24px; }
+  button .lb { font-size:14px; }
+  button.big { grid-column:1 / -1; background:linear-gradient(135deg,#12305e,#0d1322);
+               border-color:#2a4a80; padding:18px; }
+  button.big .ic { font-size:28px; }
+  .talk { display:flex; gap:8px; margin-top:8px; }
+  .talk input { flex:1; background:var(--card); border:1px solid var(--line); color:var(--txt);
+                border-radius:12px; padding:14px; font-size:15px; }
+  .talk button { flex:0 0 84px; padding:12px 6px; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+           background:#16203a; border:1px solid var(--line); color:var(--hot);
+           padding:8px 18px; border-radius:20px; font-size:13px; opacity:0; transition:opacity .25s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>雪莉 · 导演台</h1>
+  <div class="sub" id="status">连接中……</div>
+
+  <div class="sec">开 拍</div>
+  <div class="grid">
+    <button class="big" data-cmd="titlecard"><span class="ic">🎬</span><span class="lb">一镜到底(片头→坠机→全剧)</span></button>
+    <button data-cmd="reset"><span class="ic">🙈</span><span class="lb">藏起来待命</span></button>
+    <button data-cmd="next"><span class="ic">▶️</span><span class="lb">剧本下一句</span></button>
+    <button data-cmd="demo"><span class="ic">☄️</span><span class="lb">坠机预演</span></button>
+    <button data-cmd="notebook"><span class="ic">📔</span><span class="lb">翻小本本</span></button>
+  </div>
+
+  <div class="sec">动 作</div>
+  <div class="grid3">
+    <button data-cmd="dance"><span class="ic">🕺</span><span class="lb">跳舞</span></button>
+    <button data-cmd="stopdance"><span class="ic">🧍‍♀️</span><span class="lb">停舞</span></button>
+    <button data-cmd="spin"><span class="ic">🌀</span><span class="lb">转圈</span></button>
+    <button data-cmd="fling"><span class="ic">🌪️</span><span class="lb">甩飞</span></button>
+    <button data-cmd="comeback"><span class="ic">🛬</span><span class="lb">叫回来</span></button>
+    <button data-cmd="stop"><span class="ic">🤫</span><span class="lb">闭嘴</span></button>
+  </div>
+
+  <div class="sec">让 她 说</div>
+  <div class="talk">
+    <input id="sayText" placeholder="打一句,她原样念出来" autocomplete="off">
+    <button id="sayBtn"><span class="lb">照念</span></button>
+  </div>
+  <div class="talk">
+    <input id="askText" placeholder="问她一句,大脑想好再答" autocomplete="off">
+    <button id="askBtn"><span class="lb">问她</span></button>
+  </div>
+</div>
+<div id="toast"></div>
+<script>
+  const toast = (t) => {
+    const el = document.getElementById("toast");
+    el.textContent = t; el.style.opacity = 1;
+    clearTimeout(el._t); el._t = setTimeout(() => { el.style.opacity = 0; }, 1400);
+  };
+  async function send(cmd, arg) {
+    try {
+      const r = await fetch("/control", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd, arg }) });
+      const j = await r.json();
+      if (!j.listeners) toast("⚠️ 桌面雪莉不在线");
+      else toast("已发送 ✓");
+      document.getElementById("status").textContent = j.listeners ? "已连上桌面雪莉 ●" : "桌面雪莉离线 ○";
+    } catch { toast("发送失败:网络不通"); }
+  }
+  document.querySelectorAll("button[data-cmd]").forEach((b) =>
+    b.addEventListener("click", () => send(b.dataset.cmd)));
+  document.getElementById("sayBtn").onclick = () => {
+    const v = document.getElementById("sayText").value.trim();
+    if (v) { send("say", v); document.getElementById("sayText").value = ""; }
+  };
+  document.getElementById("askBtn").onclick = () => {
+    const v = document.getElementById("askText").value.trim();
+    if (v) { send("ask", v); document.getElementById("askText").value = ""; }
+  };
+  // 进页面先探一下在线状态
+  send("ping");
+</script>
+</body>
+</html>

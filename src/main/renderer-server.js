@@ -251,6 +251,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   // ── Sherlly agent 桥 ──────────────────────────────────────────────────────
   // 发消息给 cicy-code 的 agent pane，轮询 current-reply 直到那一轮跑完，取纯文本回复。
   const AGENT_BASE = process.env.CICY_API_PORT ? `http://127.0.0.1:${process.env.CICY_API_PORT}` : 'http://127.0.0.1:8008';
+  const controlClients = new Set();   // /control-stream 的在线订阅者(桌面 pet.html)
   // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
   // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。
   let noProxyDispatcher = null;
@@ -269,6 +270,39 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     } catch { return ''; }
   }
   async function agentPane() { return (await readSecrets()).agentPane || 'w-10242'; }
+
+  // 小本本数据源：直读大脑（Sherlly）工作区的持久记忆目录。
+  // 每条记忆 = 一个带 frontmatter 的 .md（cicy-code recognizer 每轮自动写入），
+  // 这里只做解析和分组，渲染交给 pet.html 的手账面板。
+  function readAgentMemories(pane) {
+    const dir = path.join(os.homedir(), 'cicy-ai', 'workers', pane, '.cicy', 'memory');
+    let items = [];
+    try { items = fs.readdirSync(dir); } catch { return []; }
+    const out = [];
+    for (const name of items) {
+      if (!name.endsWith('.md') || name === 'MEMORY.md') continue;
+      let raw = '';
+      try { raw = fs.readFileSync(path.join(dir, name), 'utf8'); } catch { continue; }
+      const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+      if (!m) continue;
+      const e = { mem_id: name.replace(/\.md$/, ''), type: 'fact', title: '', salience: 3, tags: [], updated: '', content: m[2].trim() };
+      for (const line of m[1].split('\n')) {
+        const kv = line.match(/^(\w+):\s*(.*)$/);
+        if (!kv) continue;
+        const [, k, v] = kv;
+        if (k === 'mem_id') e.mem_id = v.trim();
+        else if (k === 'type') e.type = v.trim();
+        else if (k === 'title') e.title = v.trim();
+        else if (k === 'salience') e.salience = parseInt(v, 10) || 3;
+        else if (k === 'tags') e.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+        else if (k === 'updated') e.updated = v.trim();
+      }
+      out.push(e);
+    }
+    // 首页排序：salience 高在前，同级按更新时间新在前
+    out.sort((a, b) => (b.salience - a.salience) || String(b.updated).localeCompare(String(a.updated)));
+    return out;
+  }
 
   async function askAgent(text) {
     const token = await agentToken();
@@ -419,6 +453,50 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
       }
       // ── /agent：把宠物的话交给 cicy-code 的 Sherlly agent，等它跑完把文字回复拿回来 ──
       // 宠物 = 脸和嘴，Sherlly = 有手有脚的大脑。发送走 cicy-agent，取回复轮询 current-reply。
+      // ---------- 手机遥控通道 ----------
+      // 手机(remote.html / cicy-mobile)POST /control 下指令;桌面 pet.html 用
+      // EventSource 挂在 /control-stream 上即时收到并执行。全控制 = 拍摄导演台在手机上。
+      if (u.pathname === '/control' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          try {
+            const { cmd, arg } = JSON.parse(body || '{}');
+            const payload = JSON.stringify({ cmd, arg, t: Date.now() });
+            for (const client of controlClients) { try { client.write(`data: ${payload}\n\n`); } catch {} }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, listeners: controlClients.size }));
+          } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: String(e.message || e) }));
+          }
+        });
+        return;
+      }
+      if (u.pathname === '/control-stream') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache',
+          Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*',
+        });
+        res.write(': hello\n\n');
+        controlClients.add(res);
+        const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch {} }, 25000);
+        req.on('close', () => { clearInterval(ka); controlClients.delete(res); });
+        return;
+      }
+
+      if (u.pathname === '/memories') {
+        try {
+          const pane = await agentPane();
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ entries: readAgentMemories(pane) }));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: String(e.message || e) }));
+        }
+        return;
+      }
+
       if (u.pathname === '/agent' && req.method === 'POST') {
         const chunks = [];
         req.on('data', (c) => chunks.push(c));
@@ -549,7 +627,9 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
 
   return new Promise((resolve, reject) => {
     server.on('error', reject);
-    server.listen(port, '127.0.0.1', () => {
+    // 0.0.0.0:手机(cicy-mobile 雪莉页/浏览器)走局域网直连这台 Mac 的皮囊与嘴。
+    // 端点无鉴权,家用局域网可接受;上公网需加防护。
+    server.listen(port, '0.0.0.0', () => {
       log(`[server] http://127.0.0.1:${port}  renderer=${rendererDir}`);
       resolve(server);
     });
