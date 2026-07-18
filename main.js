@@ -109,7 +109,9 @@ app.whenReady().then(async () => {
 
     ctx.ttsService = new TTSService();
     ctx.translationService = new TranslationService();
-    createSettingsWindow();
+    // settings 窗口**不再开机自建**:它加载的旧 DesktopPetSystem 在后台每秒轮询
+    // active-win(辅助功能)+ desktopCapturer(屏幕录制),权限没给就无限弹系统授权框。
+    // 大脑已是 Sherlly,这套旧观察链路纯空转——需要设置时从托盘点开(按需创建)。
     trayManager.createTray();
 
     // 宠物窗口：模型本来就 bundled 在 renderer/models/，所以**先把宠物拉起来**，
