@@ -262,7 +262,11 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   // 唯一在场:她此刻只在一个 client 上。每个打开的页面 = 一个 client(短 id 如 mac-k3,
   // 自带 platform)。client 会随页面关闭/App 重启消亡——她"在"的 client 下线后,由同平台的
   // 新页面通过 /presence?claim= 过继(否则桌面重启一次她就查无此人)。
+  // **落盘持久化**:只存内存的话服务器一重启她就被传送回默认设备(在手机上→重启→跑回 mac)。
+  const PRESENCE_FILE = path.join(cacheDir || appDir, 'presence.json');
   let presence = { client: null, platform: 'mac' };
+  try { presence = { ...presence, ...JSON.parse(fs.readFileSync(PRESENCE_FILE, 'utf8')) }; } catch {}
+  const savePresence = () => { try { fs.writeFileSync(PRESENCE_FILE, JSON.stringify(presence)); } catch {} };
   const onlineClients = () => {
     const seen = new Map();
     for (const c of controlClients) { if (c._clientId) seen.set(c._clientId, c._platform || 'unknown'); }
@@ -484,6 +488,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
             if (cmd === 'goto' && arg) {
               const from = presence.client, target = String(arg);
               presence = { client: target, platform: onlineClients().get(target) || 'unknown' };
+              savePresence();
               if (from === target) { bcast({ cmd: 'arrive', arg: target }); }   // 原地召回,直接现身
               else {
                 if (from) bcast({ cmd: 'leave', arg: from });                    // 先消失
@@ -540,6 +545,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
           const online = onlineClients();
           if (!online.has(presence.client) && plat === presence.platform) {
             presence = { client: claim.slice(0, 32), platform: plat.slice(0, 16) };
+            savePresence();
           }
         }
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
