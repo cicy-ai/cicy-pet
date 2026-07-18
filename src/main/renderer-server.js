@@ -251,8 +251,9 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   // ── Sherlly agent 桥 ──────────────────────────────────────────────────────
   // 发消息给 cicy-code 的 agent pane，轮询 current-reply 直到那一轮跑完，取纯文本回复。
   const AGENT_BASE = process.env.CICY_API_PORT ? `http://127.0.0.1:${process.env.CICY_API_PORT}` : 'http://127.0.0.1:8008';
-  const controlClients = new Set();   // /control-stream 的在线订阅者(桌面 pet.html)
-  let petCfg = {};                    // 桌面雪莉上报的当前配置(手机配置页回显用)
+  const controlClients = new Set();   // /control-stream 的在线订阅者(各设备的 pet.html)
+  let petCfg = {};                    // 唯一配置(形象/音色/语速)——全设备共享,她走到哪带到哪
+  let presence = { device: 'mac' };   // 唯一在场:她此刻只在这一台。新页面加载时据此决定显不显示
   // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
   // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。
   let noProxyDispatcher = null;
@@ -463,6 +464,12 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         req.on('end', () => {
           try {
             const { cmd, arg } = JSON.parse(body || '{}');
+            // goto = 换位置:更新唯一在场,新加载的页面据此决定显不显示
+            if (cmd === 'goto' && arg) presence = { device: String(arg) };
+            // 配置变更同步进唯一配置(她走到哪都用同一形象/音色)
+            if (cmd === 'model' && arg) petCfg = { ...petCfg, model: String(arg) };
+            if (cmd === 'voice' && arg) petCfg = { ...petCfg, voice: String(arg) };
+            if (cmd === 'rate' && arg != null) petCfg = { ...petCfg, rate: String(arg) };
             const payload = JSON.stringify({ cmd, arg, t: Date.now() });
             for (const client of controlClients) { try { client.write(`data: ${payload}\n\n`); } catch {} }
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -483,6 +490,13 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         controlClients.add(res);
         const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch {} }, 25000);
         req.on('close', () => { clearInterval(ka); controlClients.delete(res); });
+        return;
+      }
+
+      // 她此刻在哪一台(唯一在场)。新页面加载先问这里,决定显示还是藏起来。
+      if (u.pathname === '/presence') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(presence));
         return;
       }
 

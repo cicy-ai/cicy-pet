@@ -1431,6 +1431,18 @@
     // 首次加载可能撞上时序竞态（依赖脚本/字体/首帧未就绪）——失败自动重试，
     // 不然 .then 吞掉错误就永远空场（「形象出不来」）。
     (async function bootModel() {
+      // 她是一个角色:同一形象、同一声音、同一时刻只在一台。加载前先问服务器唯一真相——
+      // 用共享的形象/音色(全设备一致),并按「她此刻在哪台」决定本机显示还是藏起来。
+      try {
+        const [pc, pr] = await Promise.all([
+          fetch("/petcfg").then((r) => r.json()).catch(() => ({})),
+          fetch("/presence").then((r) => r.json()).catch(() => ({})),
+        ]);
+        if (pc && pc.model) cfg.model = pc.model;
+        if (pc && pc.voice) { cfg.voice = pc.voice; if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; }
+        if (pc && pc.rate) cfg.rate = pc.rate;
+        if (pr && pr.device) present = (pr.device === DEVICE);   // 不在这台就先藏着,等被 goto 召唤
+      } catch {}
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           await loadModel(cfg.model);
@@ -1440,8 +1452,8 @@
       }
       if (!model) { console.error("[boot] 模型多次加载失败"); return; }
       bus.postMessage({ type: "ready" });
-      if (params.get("entrance")) setTimeout(() => windowFlight(), 500);
-      if (params.get("say")) setTimeout(() => speak(params.get("say")), 800);   // 自测口型:?say=文字
+      if (present && params.get("entrance")) setTimeout(() => windowFlight(), 500);   // 只有她在这台才入场
+      if (present && params.get("say")) setTimeout(() => speak(params.get("say")), 800);   // 自测口型:?say=文字
       window.__lipPeek = () => ({ active: lip.active, value: +lip.value.toFixed(3) });
     })();
 
