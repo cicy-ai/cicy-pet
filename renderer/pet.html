@@ -1181,6 +1181,14 @@
         } catch {}
       }
       if (!text) { bubble("没听清，再说一遍？", true); setTimeout(() => bubble("", false), 2500); return; }
+      // 她不在这台:话不落地——带给她"在"的那台去回答,那边的扬声器出声(话跟人走)
+      if (!present) {
+        fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cmd: "ask", arg: text }) }).catch(() => {});
+        bubble("📨 话带给她了,她在别的设备上回你", true);
+        setTimeout(() => bubble("", false), 2600);
+        return;
+      }
       dataChirp();       // 「收到指令」数据雨——填掉 AI 思考的空档
       bubble("", false); // 松手后不回显「你说的话」，字幕只在说的过程中出现
       await chatReply(text);
@@ -2151,6 +2159,9 @@
     async function speak(text, fx) {
       stopSpeaking();
       if (!text || !text.trim()) return;
+      // 她是一个角色一种声音:只有她"在"的设备开口。不在场的页面无论谁调 speak
+      // (本地按钮/漏网广播/旧代码路径)都一律静音——扬声器跟人走。
+      if (!present) return;
 
       audioCtx = audioCtx || new AudioContext();
       await audioCtx.resume();
