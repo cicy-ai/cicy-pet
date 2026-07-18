@@ -150,7 +150,11 @@
     #voiceBtn:active { transform: scale(.985); }
     #voiceBtn.rec { background: linear-gradient(180deg, #d0506a, #7a1a2a); color: #ffe9ee;
       box-shadow: 0 0 0 6px rgba(224,85,106,.2), 0 6px 20px rgba(140,20,40,.5); }
+    /* 上滑进入取消区:变灰,松开即丢弃 */
+    #voiceBtn.cancel { background: linear-gradient(180deg, #5a6070, #333845); color: #cfd6e4;
+      box-shadow: 0 6px 18px rgba(0,0,0,.5); }
     #voiceBtn .hint { font-size: 15px; letter-spacing: 4px; }
+    #voiceBtn.rec .hint { font-size: 14px; letter-spacing: 1.5px; }
   </style>
 </head>
 
@@ -219,16 +223,17 @@
       // 等她飞走了(~0.9s)再亮出正中的状态卡,别跟飞出动画抢镜
       setTimeout(() => { if (!present && typeof reflectLoc === "function") reflectLoc(); }, 900);
     }
-    // 手机版「消失」:模型在画布里翻滚、往上飞、同时淡出,~0.7s 后藏起并复位(下次 arrive 重现)。
+    // 手机版「离场」:轻轻上浮 + 淡出,像一缕光散场。不翻跟头——翻跟头是特效,
+    // 不能用在所有转场(用户 2026-07-18)。
     function petFlyOffCanvas() {
       const m = window.__model;
       if (!m) return;
-      try { playMove("tumble"); } catch {}
       const x0 = m.x, y0 = m.y, t0 = performance.now(), DUR = 700;
       (function step() {
         if (present) { m.alpha = 1; m.x = x0; m.y = y0; return; }   // 中途又被召回
         const p = Math.min(1, (performance.now() - t0) / DUR);
-        m.x = x0 + p * 240; m.y = y0 - p * 200; m.alpha = 1 - p;
+        const e = p * p * (3 - 2 * p);   // smoothstep,起步柔和
+        m.y = y0 - e * 150; m.alpha = 1 - p;
         if (p < 1) requestAnimationFrame(step);
         else { m.visible = false; m.alpha = 1; m.x = x0; m.y = y0; }
       })();
@@ -244,7 +249,7 @@
       // （*_uranus_bigtts）→ 引擎/音色错搭会静默失败，这里纠正成 doubao。
       engine: params.get("engine") || saved.engine || "doubao",
       voice: params.get("voice") || saved.voice || "zh_female_shuangkuaisisi_uranus_bigtts",
-      rate: params.get("rate") || saved.rate || "+8%",
+      rate: params.get("rate") || saved.rate || "+18%",   // 爽快思思 +8% 显笨,+18% 才伶牙俐齿
       pitch: params.get("pitch") || saved.pitch || "+20Hz",
     };
     if (/_uranus_bigtts$/.test(cfg.voice) && cfg.engine !== "doubao") cfg.engine = "doubao";
@@ -1419,20 +1424,45 @@
 
     window.petVoice = { toggle: voiceToggle, say: chatReply };
 
-    // 手机版底部语音按钮:body.phone 时显示,按住录音、松手结束(和按住宠物说话同一套 voiceBegin/Finish)。
+    // 手机版底部语音按钮:按住录音、松手发送、**上滑取消**(微信手感)。
+    // 来电/手势导航打断(touchcancel)一律按取消处理,不把半截话发出去。
     // 首次触摸也顺便解锁 WebAudio(手机浏览器要用户手势才让出声/录音)。
     (function wireVoiceBtn() {
       const btn = document.getElementById("voiceBtn");
       if (!btn) return;
+      const hint = btn.querySelector(".hint");
       const unlock = () => { try { audioCtx = audioCtx || new AudioContext(); audioCtx.resume(); } catch {} };
+      const CANCEL_DY = 70;   // 上滑超过这个距离进入取消区
+      let y0 = 0, canceling = false;
+      const reset = () => { pttHolding = false; canceling = false;
+        btn.classList.remove("rec", "cancel"); hint.textContent = "按 住 说 话"; };
       // pttHolding 必须置真——否则 app.ticker 看门狗(rec.byHold && !pttHolding)会下一帧就把录音掐掉。
-      const start = (e) => { e.preventDefault(); unlock(); pttHolding = true; btn.classList.add("rec"); btn.querySelector(".hint").textContent = "松 手 发 送"; try { voiceBegin(true); } catch {} };
-      const end = (e) => { if (e) e.preventDefault(); pttHolding = false; btn.classList.remove("rec"); btn.querySelector(".hint").textContent = "按 住 说 话"; try { voiceFinish(); } catch {} };
+      const start = (e) => { e.preventDefault(); unlock();
+        y0 = e.touches ? e.touches[0].clientY : e.clientY;
+        canceling = false; pttHolding = true;
+        btn.classList.add("rec"); hint.textContent = "松手发送 · 上滑取消";
+        try { voiceBegin(true); } catch {} };
+      const move = (e) => {
+        if (!pttHolding) return;
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        const c = y0 - y > CANCEL_DY;
+        if (c !== canceling) {
+          canceling = c;
+          btn.classList.toggle("cancel", c);
+          hint.textContent = c ? "松 开 取 消" : "松手发送 · 上滑取消";
+        }
+      };
+      const end = (e) => { if (e) e.preventDefault(); if (!pttHolding) return;
+        const wasCancel = canceling; reset();
+        try { wasCancel ? voiceCancel() : voiceFinish(); } catch {} };
+      const abort = () => { if (!pttHolding) return; reset(); try { voiceCancel(); } catch {} };
       btn.addEventListener("contextmenu", (e) => e.preventDefault());   // 长按不弹系统菜单
       btn.addEventListener("touchstart", start, { passive: false });
+      btn.addEventListener("touchmove", move, { passive: false });
       btn.addEventListener("touchend", end, { passive: false });
-      btn.addEventListener("touchcancel", end, { passive: false });
+      btn.addEventListener("touchcancel", abort, { passive: false });
       btn.addEventListener("mousedown", start);
+      window.addEventListener("mousemove", move);
       window.addEventListener("mouseup", end);
     })();
 
@@ -1450,6 +1480,11 @@
       try { data = await (await fetch("/clients")).json(); } catch { return; }
       const clients = data.clients || [];
       const here = clients.find((c) => c.present);
+      // SSE 广播是尽力而为——隧道断线重连的间隙里 leave/arrive 会整条丢
+      // (「去了mac手机还在」「召回了手机不出现」都是这么来的)。
+      // 服务器 presence 是唯一真相,每轮轮询强制对齐:该走没走→走,该来没来→来。
+      if (present && data.presence && data.presence !== CLIENT_ID) leave();
+      else if (!present && data.presence === CLIENT_ID) { arrive(); return; }
       // 自愈:她挂在一个已下线的同平台 client 上(比如 WebView 刷新换了 id)——
       // 自动把她接到我这来,不用人手点召回。开机 claim 只跑一次会输给"旧连接还没断"的竞态,
       // 这里每轮轮询都补一刀,断连一超时她就自己飞回来。
@@ -1478,14 +1513,19 @@
       }
       menu.innerHTML = html;
       menu.querySelectorAll("button[data-goto]").forEach((b) => {
-        b.onclick = () => { b.disabled = true;
+        b.onclick = () => { b.disabled = true; kickSync();
           fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ cmd: "goto", arg: b.dataset.goto }) }).catch(() => {});
           document.getElementById("stageCtl").classList.remove("open"); };
       });
     }
+    // 点了召回/去某台之后的 12s 内轮询提速到 1s 一次——广播丢了也能秒级对齐,
+    // 不用干等 6s 才见她动。
+    let fastUntil = 0;
+    function kickSync() { fastUntil = Date.now() + 12000; }
     if (DEVICE === "phone") {
       setInterval(reflectLoc, 6000);   // 设备上下线/她被别处召走,定时对齐
+      setInterval(() => { if (Date.now() < fastUntil) reflectLoc(); }, 1000);
       const ctl = document.getElementById("stageCtl");
       document.getElementById("stageToggle").onclick = () => {
         ctl.classList.toggle("open");
@@ -1495,9 +1535,19 @@
       document.getElementById("awayBack").onclick = (e) => {
         e.target.disabled = true;
         setTimeout(() => { e.target.disabled = false; }, 2500);
+        kickSync();
         fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cmd: "goto", arg: CLIENT_ID }) }).catch(() => {});
       };
+    } else {
+      // 桌面同样以服务器为真相兜底:广播丢了/服务器重启,8s 内自动对齐(含无主过继)
+      setInterval(async () => {
+        try {
+          const pr = await (await fetch(`/presence?claim=${encodeURIComponent(CLIENT_ID)}&platform=${encodeURIComponent(PLATFORM)}`)).json();
+          if (present && pr.client && pr.client !== CLIENT_ID) leave();
+          else if (!present && pr.client === CLIENT_ID) arrive();
+        } catch {}
+      }, 8000);
     }
 
     // superfly 音效：飞行段长哨声，落地闷响+弹簧，第二跳补一声小闷响

@@ -255,7 +255,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   // 唯一配置(形象/音色/语速)——全设备共享,她走到哪带到哪。**持久化到磁盘**,重启不丢,
   // 否则内存态一重启就回默认,就会「桌面和手机角色不一致」。
   const PETCFG_FILE = path.join(cacheDir || appDir, 'petcfg.json');
-  const DEFAULT_PETCFG = { model: 'models/Hiyori/Hiyori.model3.json', voice: 'zh_female_shuangkuaisisi_uranus_bigtts', rate: '+8%', engine: 'doubao' };
+  const DEFAULT_PETCFG = { model: 'models/Hiyori/Hiyori.model3.json', voice: 'zh_female_shuangkuaisisi_uranus_bigtts', rate: '+18%', engine: 'doubao' };
   let petCfg = { ...DEFAULT_PETCFG };
   try { petCfg = { ...DEFAULT_PETCFG, ...JSON.parse(fs.readFileSync(PETCFG_FILE, 'utf8')) }; } catch {}
   const savePetCfg = () => { try { fs.writeFileSync(PETCFG_FILE, JSON.stringify(petCfg)); } catch {} };
