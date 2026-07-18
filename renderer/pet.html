@@ -42,10 +42,13 @@
       transition: opacity .18s ease;
     }
     #bubble.on { opacity: 1; }
-    /* 手机:气泡更大更醒目,压在语音条上方不挡脸 */
+    /* 手机:气泡压在语音条上方。长回答**封顶 30% 屏高**内部滚动——不许霸屏把她盖没,
+       她说到哪自动滚到哪,手指也能翻回去看前文 */
     body.phone #bubble { top: auto; bottom: calc(118px + env(safe-area-inset-bottom));
-      font-size: 16px; line-height: 1.5; padding: 12px 16px; border-radius: 16px;
-      background: rgba(22, 32, 58, .94); color: #eaf4ff; max-width: 86%; }
+      font-size: 15px; line-height: 1.55; padding: 12px 16px; border-radius: 16px;
+      background: rgba(22, 32, 58, .92); color: #eaf4ff; max-width: 86%;
+      max-height: 30vh; overflow-y: auto; pointer-events: auto;
+      overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 
     /* 加载态——只在手机(body.phone)出现;桌面透明浮窗保持原样,绝不加这层。 */
     #loading { display: none; position: fixed; inset: 0; flex-direction: column;
@@ -1118,6 +1121,7 @@
 
     // 丢弃这次录音（快速点按/拖动/失焦等），什么都不发送
     function voiceCancel() {
+      window.__voiceBtnReset?.();
       if (!rec) {
         if (recStarting) pendingCancel = true;
         return;
@@ -1133,6 +1137,7 @@
     }
 
     async function voiceFinish() {
+      window.__voiceBtnReset?.();
       if (!rec) {
         if (recStarting) pendingFinish = true;   // 麦克风还在开 → 记账，开完立即收
         return;
@@ -1436,6 +1441,9 @@
       let y0 = 0, canceling = false;
       const reset = () => { pttHolding = false; canceling = false;
         btn.classList.remove("rec", "cancel"); hint.textContent = "按 住 说 话"; };
+      // voiceFinish/voiceCancel 从任何路径收尾时(看门狗/失焦/打断)都要把按钮变回蓝色——
+      // 否则录音早停了,按钮还卡在红色「松手发送」上。
+      window.__voiceBtnReset = reset;
       // pttHolding 必须置真——否则 app.ticker 看门狗(rec.byHold && !pttHolding)会下一帧就把录音掐掉。
       const start = (e) => { e.preventDefault(); unlock();
         y0 = e.touches ? e.touches[0].clientY : e.clientY;
@@ -2226,7 +2234,12 @@
         return;
       }
       const b = $("bubble");
-      if (on) b.textContent = text;
+      if (on) {
+        // 用户手动往回翻时不打扰;否则跟着她说的进度自动滚到底
+        const follow = b.scrollHeight - b.scrollTop - b.clientHeight < 40;
+        b.textContent = text;
+        if (follow) b.scrollTop = b.scrollHeight;
+      }
       b.classList.toggle("on", !!on);
     }
 
