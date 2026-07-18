@@ -102,7 +102,22 @@ app.whenReady().then(async () => {
         ctx.rendererServer = await createServer({ appDir: basePath, cacheDir, assetDir, port: 13004,
             log: (...a) => console.log(...a),
             // doubao TTS 的 key 存在 config.json（gitignore），server 按需读
-            getConfig: () => configManager.loadConfigFile().catch(() => ({})) });
+            getConfig: () => configManager.loadConfigFile().catch(() => ({})),
+            // /peek 的眼睛:主进程按需截一张主屏(她在手机上也能看 mac 屏幕)。
+            // 一次性截图,不轮询;需要系统「屏幕录制」权限(没给时静默返回空)。
+            capture: async () => {
+                try {
+                    const sources = await desktopCapturer.getSources({
+                        types: ['screen'], thumbnailSize: { width: 1024, height: 1024 } });
+                    const th = sources[0] && sources[0].thumbnail;
+                    const b64 = th && !th.isEmpty() ? th.toJPEG(35).toString('base64') : null;
+                    for (const s of sources) { try { s.thumbnail = null; s.appIcon = null; } catch {} }
+                    return b64;
+                } catch (e) {
+                    console.error('[capture]', e);
+                    return null;
+                }
+            } });
     } catch (e) {
         console.error('[server] failed to start:', e.message);
     }

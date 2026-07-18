@@ -233,7 +233,7 @@ function extractSpoken(raw) {
     .slice(0, 240);                           // 桌宠只读前 240 字，别念长文
 }
 
-function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {}, getConfig = null }) {
+function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {}, getConfig = null, capture = null }) {
   const rendererDir = path.join(appDir, 'renderer');
   let voicesCache = null;
 
@@ -604,8 +604,26 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         });
         return;
       }
-      // 视觉：POST {image(base64 或 dataURL), prompt} → 智谱 GLM-4V-Flash（免费）→ {text}
-      // CiCy「看屏幕」用它：渲染端截屏传进来，这里代理调用（key 不暴露给页面）。
+      // GLM-4V-Flash(免费)描述一张截图 —— /vision 和 /peek 共用(key 不暴露给页面)
+      async function describeImage(image, prompt) {
+        const key = (await readSecrets()).zhipuKey;
+        if (!key) throw new Error('zhipuKey 未配置');
+        const url = /^data:/.test(image) ? image : `data:image/jpeg;base64,${image}`;
+        const r = await agentFetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'glm-4v-flash',
+            messages: [{ role: 'user', content: [
+              { type: 'text', text: prompt || '简短描述这张屏幕截图里用户在做什么。' },
+              { type: 'image_url', image_url: { url } },
+            ] }],
+          }),
+        });
+        const j = await r.json();
+        return ((j.choices && j.choices[0].message.content) || '').replace(/<\|[^|]*\|>/g, '').trim();
+      }
+      // 视觉：POST {image(base64 或 dataURL), prompt} → {text}。渲染端自带截图时走这里。
       if (u.pathname === '/vision' && req.method === 'POST') {
         const chunks = [];
         req.on('data', (c) => chunks.push(c));
@@ -613,28 +631,35 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
           try {
             const { image, prompt } = JSON.parse(Buffer.concat(chunks).toString() || '{}');
             if (!image) { res.statusCode = 400; return res.end('image required'); }
-            const key = (await readSecrets()).zhipuKey;
-            if (!key) { res.statusCode = 503; return res.end('zhipuKey 未配置'); }
-            const url = /^data:/.test(image) ? image : `data:image/jpeg;base64,${image}`;
-            const r = await agentFetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: 'glm-4v-flash',
-                messages: [{ role: 'user', content: [
-                  { type: 'text', text: prompt || '简短描述这张屏幕截图里用户在做什么。' },
-                  { type: 'image_url', image_url: { url } },
-                ] }],
-              }),
-            });
-            const j = await r.json();
-            const text = ((j.choices && j.choices[0].message.content) || '').replace(/<\|[^|]*\|>/g, '').trim();
+            const text = await describeImage(image, prompt);
             const body = Buffer.from(JSON.stringify({ text }), 'utf8');
             noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
             res.end(body);
           } catch (e) {
             log('[vision] failed:', e.message);
             res.statusCode = 500; res.end('vision failed: ' + e.message);
+          }
+        });
+        return;
+      }
+      // 服务器亲自截 mac 屏 + 看图:POST {prompt} → {text}。她不在 mac(比如在手机上)时,
+      // 手机页面没截屏能力——借主进程 desktopCapturer 的眼睛,看的永远是 mac 屏幕。
+      if (u.pathname === '/peek' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', async () => {
+          try {
+            if (!capture) { res.statusCode = 503; return res.end('no capture on this host'); }
+            const { prompt } = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+            const b64 = await capture();
+            if (!b64) { res.statusCode = 500; return res.end('capture empty(屏幕录制权限?)'); }
+            const text = await describeImage(b64, prompt);
+            const body = Buffer.from(JSON.stringify({ text }), 'utf8');
+            noStore({ 'Content-Type': MIME['.json'], 'Content-Length': body.length });
+            res.end(body);
+          } catch (e) {
+            log('[peek] failed:', e.message);
+            res.statusCode = 500; res.end('peek failed: ' + e.message);
           }
         });
         return;

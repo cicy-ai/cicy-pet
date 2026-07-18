@@ -1373,7 +1373,18 @@
     // 把它看到的东西作为线索一起交给 Sherlly，让她带着「视觉」自然作答。
     const SCREEN_INTENT = /屏幕|在干(嘛|什么|啥)|在看(什么|啥|的啥)|这是(什么|啥)|帮我看|看看我|我在做什么|桌面上|画面上|看得到|你看(到|见)/;
     async function peekScreen(question) {
-      if (!api || !api.getScreenCapture) return "";
+      const prompt = "用一两句话描述这张电脑屏幕截图里用户正在做什么、屏幕上有什么。"
+        + (question ? "重点关注和这个问题相关的：" + question : "");
+      // 没有本机截屏能力(她在手机/浏览器上)→ 借服务器的眼睛:主进程截 mac 屏 + 看图。
+      // 她的眼睛永远是 mac 屏幕,人在哪台都能"瞄一眼电脑"。
+      if (!api || !api.getScreenCapture) {
+        try {
+          const r = await fetch("/peek", { method: "POST",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+          if (!r.ok) return "";
+          return ((await r.json()).text || "").trim();
+        } catch { return ""; }
+      }
       try {
         let b64 = null;
         for (let i = 0; i < 3 && !b64; i++) {   // 首次截屏偶发返回空，重试
@@ -1383,7 +1394,7 @@
         if (!b64) return "";
         const r = await fetch("/vision", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: b64, prompt: "用一两句话描述这张电脑屏幕截图里用户正在做什么、屏幕上有什么。" + (question ? "重点关注和这个问题相关的：" + question : "") }),
+          body: JSON.stringify({ image: b64, prompt }),
         });
         if (!r.ok) return "";
         return ((await r.json()).text || "").trim();
