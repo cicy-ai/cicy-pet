@@ -944,7 +944,9 @@
         const segs = new Map();   // seg → {text, definite}，火山按段累积更新
         let ws = null;
         try {
-          ws = new WebSocket(`ws://127.0.0.1:13004/asr`);
+          // 跟着当前域名走:桌面=ws://127.0.0.1:13004,手机经隧道=wss://pet.hub.cicy-ai.com
+          const wsProto = location.protocol === "https:" ? "wss" : "ws";
+          ws = new WebSocket(`${wsProto}://${location.host}/asr`);
           ws.binaryType = "arraybuffer";
           ws.onmessage = (ev) => {
             if (!rec) return;
@@ -1304,8 +1306,9 @@
       const btn = document.getElementById("voiceBtn");
       if (!btn) return;
       const unlock = () => { try { audioCtx = audioCtx || new AudioContext(); audioCtx.resume(); } catch {} };
-      const start = (e) => { e.preventDefault(); unlock(); btn.classList.add("rec"); btn.querySelector(".hint").textContent = "松手发送"; try { voiceBegin(true); } catch {} };
-      const end = (e) => { if (e) e.preventDefault(); btn.classList.remove("rec"); btn.querySelector(".hint").textContent = "按住说话"; try { voiceFinish(); } catch {} };
+      // pttHolding 必须置真——否则 app.ticker 看门狗(rec.byHold && !pttHolding)会下一帧就把录音掐掉。
+      const start = (e) => { e.preventDefault(); unlock(); pttHolding = true; btn.classList.add("rec"); btn.querySelector(".hint").textContent = "松手发送"; try { voiceBegin(true); } catch {} };
+      const end = (e) => { if (e) e.preventDefault(); pttHolding = false; btn.classList.remove("rec"); btn.querySelector(".hint").textContent = "按住说话"; try { voiceFinish(); } catch {} };
       btn.addEventListener("touchstart", start, { passive: false });
       btn.addEventListener("touchend", end, { passive: false });
       btn.addEventListener("touchcancel", end, { passive: false });
