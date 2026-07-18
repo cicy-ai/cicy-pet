@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <title>Sherlly Pet</title>
 
   <script src="libs/live2dcubismcore.min.js"></script>
@@ -41,6 +42,10 @@
       transition: opacity .18s ease;
     }
     #bubble.on { opacity: 1; }
+    /* 手机:气泡更大更醒目,压在语音条上方不挡脸 */
+    body.phone #bubble { top: auto; bottom: calc(118px + env(safe-area-inset-bottom));
+      font-size: 16px; line-height: 1.5; padding: 12px 16px; border-radius: 16px;
+      background: rgba(22, 32, 58, .94); color: #eaf4ff; max-width: 86%; }
 
     /* 加载态——只在手机(body.phone)出现;桌面透明浮窗保持原样,绝不加这层。 */
     #loading { display: none; position: fixed; inset: 0; flex-direction: column;
@@ -55,30 +60,40 @@
       animation: spin 0.9s linear infinite; }
     #loading .msg { font-size: 15px; color: #86a8d8; letter-spacing: 1px; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    /* 手机专用:顶部常驻位置控制条——召回(来手机) / 去电脑。桌面浮窗不显示。 */
-    #locBar { display: none; position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-      z-index: 45; gap: 10px; }
+    /* 手机版整体观感:星空深色底 + 脚下柔光地台(桌面浮窗保持透明,不受影响) */
+    body.phone { background: radial-gradient(ellipse 130% 70% at 50% 30%, #0d1736 0%, #070b1a 55%, #04060f 100%); }
+    body.phone::after { content: ""; position: fixed; left: 50%; bottom: 8%;
+      width: 78vw; height: 12vh; transform: translateX(-50%); pointer-events: none;
+      background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(90,150,255,.16), transparent 70%); }
+
+    /* 手机专用:顶部位置条。按钮智能生成——她在手机→只有「去某台」;不在→只有「召回」 */
+    #locBar { display: none; position: fixed; top: calc(16px + env(safe-area-inset-top));
+      left: 50%; transform: translateX(-50%); z-index: 45; gap: 10px; }
     body.phone #locBar { display: flex; }
-    #locBar button { border: none; cursor: pointer; padding: 10px 18px; border-radius: 22px;
-      font-size: 14px; color: #eaf4ff; background: rgba(18,48,94,.82); backdrop-filter: blur(6px);
+    #locBar button { border: none; cursor: pointer; padding: 12px 24px; border-radius: 24px;
+      font-size: 15px; color: #eaf4ff; background: rgba(18,48,94,.85); backdrop-filter: blur(6px);
       font-family: "PingFang SC", system-ui; box-shadow: 0 3px 12px rgba(0,0,0,.4);
       -webkit-tap-highlight-color: transparent; }
     #locBar button:active { transform: scale(.95); }
-    #locBar button.here { background: rgba(42,111,208,.95); }   /* 她在本机时高亮「召回」 */
+    #locBar button.primary { background: linear-gradient(135deg, #2a6fd0, #12305e);
+      padding: 12px 26px; font-size: 15px; }
 
-    /* 手机版底部语音按钮:按住跟她说话(桌面透明宠物不需要,靠鼠标/快捷键)。
-       只有 body.phone 时显示。 */
-    #voiceBtn { display: none; position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%);
-      width: 76px; height: 76px; border-radius: 50%; z-index: 40; border: none; cursor: pointer;
-      background: radial-gradient(circle at 50% 38%, #2a6fd0, #12305e); color: #eaf4ff;
-      box-shadow: 0 8px 24px rgba(20,60,140,.5), inset 0 1px 0 rgba(255,255,255,.25);
-      font-size: 30px; display: none; align-items: center; justify-content: center;
-      transition: transform .12s ease, box-shadow .12s ease; -webkit-tap-highlight-color: transparent; }
+    /* 手机版语音键:微信式底部长条——拇指天然落点,左右手都顺手,按住说话松手发送。
+       只有 body.phone 显示;适配 iPhone 底部安全区。 */
+    #voiceBtn { display: none; position: fixed; left: 16px; right: 16px;
+      bottom: calc(34px + env(safe-area-inset-bottom)); height: 58px;
+      border-radius: 27px; z-index: 40; border: none; cursor: pointer;
+      background: linear-gradient(180deg, #1c3a6e, #12305e); color: #dfeaff;
+      box-shadow: 0 6px 20px rgba(10,30,80,.55), inset 0 1px 0 rgba(255,255,255,.14);
+      font: 16px/1 "PingFang SC", system-ui; letter-spacing: 4px;
+      align-items: center; justify-content: center; gap: 8px;
+      transition: transform .1s ease, background .15s ease; -webkit-tap-highlight-color: transparent;
+      user-select: none; -webkit-user-select: none; touch-action: none; }
     body.phone #voiceBtn { display: flex; }
-    #voiceBtn.rec { background: radial-gradient(circle at 50% 38%, #e0556a, #7a1a2a);
-      box-shadow: 0 0 0 8px rgba(224,85,106,.22), 0 8px 24px rgba(140,20,40,.5); transform: translateX(-50%) scale(1.06); }
-    #voiceBtn .hint { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
-      font-size: 12px; color: #86a8d8; white-space: nowrap; font-family: "PingFang SC", system-ui; }
+    #voiceBtn:active { transform: scale(.985); }
+    #voiceBtn.rec { background: linear-gradient(180deg, #d0506a, #7a1a2a); color: #ffe9ee;
+      box-shadow: 0 0 0 6px rgba(224,85,106,.2), 0 6px 20px rgba(140,20,40,.5); }
+    #voiceBtn .hint { font-size: 15px; letter-spacing: 4px; }
   </style>
 </head>
 
@@ -86,11 +101,8 @@
   <canvas id="canvas"></canvas>
   <div id="bubble"></div>
   <div id="loading"><div class="ring"></div><div class="msg" id="loadingMsg">雪莉正在穿过网线……</div></div>
-  <div id="locBar">
-    <button id="btnHere">📱 召回</button>
-    <button id="btnMac">💻 去电脑</button>
-  </div>
-  <button id="voiceBtn">🎙️<span class="hint">按住说话</span></button>
+  <div id="locBar"></div>
+  <button id="voiceBtn">🎙️<span class="hint">按 住 说 话</span></button>
 
   <script>
     const api = window.electronAPI || null;   // Live2DPet 的 preload；没有就降级成普通网页
@@ -956,7 +968,19 @@
       recStarting = true;
       try {
         const stream = await getMic();
-        const ctx = new AudioContext({ sampleRate: 16000 });
+        // 有些手机 WebView 不给 16kHz 采集(强开 48k)——先试 16k,不行就原生采样率+下采样
+        let ctx;
+        try { ctx = new AudioContext({ sampleRate: 16000 }); } catch { ctx = new AudioContext(); }
+        const srcRate = ctx.sampleRate;
+        const down = (d) => {   // 线性插值下采样到 16k(ASR/whisper 都要 16k)
+          if (srcRate === 16000) return new Float32Array(d);
+          const ratio = srcRate / 16000, n = Math.floor(d.length / ratio), out = new Float32Array(n);
+          for (let i = 0; i < n; i++) {
+            const x = i * ratio, i0 = Math.floor(x), fr = x - i0;
+            out[i] = d[i0] + ((d[i0 + 1] !== undefined ? d[i0 + 1] : d[i0]) - d[i0]) * fr;
+          }
+          return out;
+        };
         const src = ctx.createMediaStreamSource(stream);
         const proc = ctx.createScriptProcessor(4096, 1, 1);
         const bufs = [];
@@ -985,8 +1009,8 @@
         duckMusic(true);                     // 派对音乐压低——别让 ASR 听一嘴动次打次
         proc.onaudioprocess = (e) => {
           if (!rec) return;
-          const d = e.inputBuffer.getChannelData(0);
-          bufs.push(new Float32Array(d));
+          const d = down(e.inputBuffer.getChannelData(0));   // 统一 16k
+          bufs.push(d);
           let s = 0;
           for (let i = 0; i < d.length; i += 8) s += d[i] * d[i];
           auraLevel = Math.max(auraLevel, Math.sqrt(s / (d.length / 8)) * 9);  // 音量驱动光环
@@ -1326,8 +1350,9 @@
       if (!btn) return;
       const unlock = () => { try { audioCtx = audioCtx || new AudioContext(); audioCtx.resume(); } catch {} };
       // pttHolding 必须置真——否则 app.ticker 看门狗(rec.byHold && !pttHolding)会下一帧就把录音掐掉。
-      const start = (e) => { e.preventDefault(); unlock(); pttHolding = true; btn.classList.add("rec"); btn.querySelector(".hint").textContent = "松手发送"; try { voiceBegin(true); } catch {} };
-      const end = (e) => { if (e) e.preventDefault(); pttHolding = false; btn.classList.remove("rec"); btn.querySelector(".hint").textContent = "按住说话"; try { voiceFinish(); } catch {} };
+      const start = (e) => { e.preventDefault(); unlock(); pttHolding = true; btn.classList.add("rec"); btn.querySelector(".hint").textContent = "松 手 发 送"; try { voiceBegin(true); } catch {} };
+      const end = (e) => { if (e) e.preventDefault(); pttHolding = false; btn.classList.remove("rec"); btn.querySelector(".hint").textContent = "按 住 说 话"; try { voiceFinish(); } catch {} };
+      btn.addEventListener("contextmenu", (e) => e.preventDefault());   // 长按不弹系统菜单
       btn.addEventListener("touchstart", start, { passive: false });
       btn.addEventListener("touchend", end, { passive: false });
       btn.addEventListener("touchcancel", end, { passive: false });
@@ -1335,18 +1360,33 @@
       window.addEventListener("mouseup", end);
     })();
 
-    // 手机顶部位置条:召回(来手机) / 去电脑。发 goto,谁被选中就飞去谁那。
-    function reflectLoc() {
-      const here = document.getElementById("btnHere");
-      if (here) here.classList.toggle("here", present);   // 她在手机时高亮「召回」
+    // 手机顶部位置条:按钮从在线 client 列表动态生成,且看她在哪——
+    //   她在手机 → 只显示「去电脑💻/去Windows🪟…」(把她送走);
+    //   她不在   → 只显示一个「🪄 召回雪莉」。绝不出现"人在这还让你召回"的傻按钮。
+    const DEV_META = { mac: ["💻", "电脑"], windows: ["🪟", "Windows"], linux: ["🐧", "Linux"], phone: ["📱", "手机"] };
+    async function reflectLoc() {
+      const bar = document.getElementById("locBar");
+      if (!bar || DEVICE !== "phone") return;
+      let data = null;
+      try { data = await (await fetch("/clients")).json(); } catch { return; }
+      const others = (data.clients || []).filter((c) => c.id !== DEVICE);
+      let html = "";
+      if (!present) {
+        html = `<button class="primary" data-goto="${DEVICE}">🪄 召回雪莉</button>`;
+      } else {
+        for (const c of others) {
+          const [ic, name] = DEV_META[c.id] || ["🛰️", c.id];
+          html += `<button data-goto="${c.id}">${ic} 去${name}</button>`;
+        }
+      }
+      bar.innerHTML = html;
+      bar.querySelectorAll("button[data-goto]").forEach((b) => {
+        b.onclick = () => { b.disabled = true; fetch("/control", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cmd: "goto", arg: b.dataset.goto }) }).catch(() => {}); };
+      });
     }
-    (function wireLocBar() {
-      const goTo = (dev) => fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cmd: "goto", arg: dev }) }).catch(() => {});
-      const here = document.getElementById("btnHere"), mac = document.getElementById("btnMac");
-      if (here) here.onclick = () => goTo("phone");   // 召回到本机(手机)
-      if (mac) mac.onclick = () => goTo("mac");        // 送去电脑
-    })();
+    if (DEVICE === "phone") setInterval(reflectLoc, 6000);   // 设备上下线/她被别处召走,定时对齐
 
     // superfly 音效：飞行段长哨声，落地闷响+弹簧，第二跳补一声小闷响
     function superflySfx() {
@@ -1674,10 +1714,17 @@
 
     function fit() {
       if (!model) return;
-      // 留 12% 余量：转圈/跳跃会把模型甩出去一点，贴边会被窗口裁掉
-      baseScale = Math.min(window.innerWidth / model.internalModel.width,
-                           window.innerHeight / model.internalModel.height) * 0.88;
-      basePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 + 10 };
+      if (DEVICE === "phone") {
+        // 手机:按屏高撑满(0.86,给顶部按钮/底部语音条留口),模型内部的透明边横向出血没关系——
+        // 否则按宽度算她只有中间一小条,太小气。
+        baseScale = (window.innerHeight / model.internalModel.height) * 0.86;
+        basePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 - 6 };
+      } else {
+        // 桌面:留 12% 余量——转圈/跳跃会把模型甩出去一点,贴边会被窗口裁掉
+        baseScale = Math.min(window.innerWidth / model.internalModel.width,
+                             window.innerHeight / model.internalModel.height) * 0.88;
+        basePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 + 10 };
+      }
       model.scale.set(baseScale);
       model.position.set(basePos.x, basePos.y);
     }
@@ -2024,7 +2071,7 @@
     // 那台设备”上就地发生（手机上就手机放声+手机对口型）。只有“飞出屏幕/片头全屏”这
     // 类真窗口控制才需要桌面宿主(api),没有就静默跳过——手机端天然降级。
     {
-      const es = new EventSource("/control-stream");
+      const es = new EventSource("/control-stream?device=" + encodeURIComponent(DEVICE));
       es.onmessage = async (ev) => {
         let m = {};
         try { m = JSON.parse(ev.data); } catch { return; }

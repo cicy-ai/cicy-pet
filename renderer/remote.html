@@ -39,12 +39,8 @@
   <h1>雪莉 · 导演台</h1>
   <div class="sub" id="status">连接中……</div>
 
-  <div class="sec">串 门（她在设备间搬家）</div>
-  <div class="grid3">
-    <button data-cmd="goto" data-arg="mac"><span class="ic">💻</span><span class="lb">来电脑</span></button>
-    <button data-cmd="goto" data-arg="phone"><span class="ic">📱</span><span class="lb">来手机</span></button>
-    <button data-cmd="goto" data-arg="windows"><span class="ic">🪟</span><span class="lb">去Windows</span></button>
-  </div>
+  <div class="sec">串 门（她此刻在谁那,点谁她去谁那）</div>
+  <div class="grid3" id="clientBtns"><button disabled><span class="ic">🛰️</span><span class="lb">找设备中…</span></button></div>
 
   <div class="sec">开 拍</div>
   <div class="grid">
@@ -102,6 +98,24 @@
     const v = document.getElementById("askText").value.trim();
     if (v) { send("ask", v); document.getElementById("askText").value = ""; }
   };
+  // 串门按钮:从在线 client 列表动态生成。她在的那台亮着(disabled),点别的送她过去。
+  const META = { mac: ["💻", "电脑"], phone: ["📱", "手机"], windows: ["🪟", "Windows"], linux: ["🐧", "Linux"] };
+  async function refreshClients() {
+    try {
+      const d = await (await fetch("/clients")).json();
+      const box = document.getElementById("clientBtns");
+      box.innerHTML = (d.clients || []).map((c) => {
+        const [ic, name] = META[c.id] || ["🛰️", c.id];
+        return `<button data-cmd="goto" data-arg="${c.id}" ${c.present ? "disabled style='opacity:.55'" : ""}>` +
+          `<span class="ic">${ic}</span><span class="lb">${c.present ? "她在" + name : "去" + name}</span></button>`;
+      }).join("") || `<button disabled><span class="ic">🛰️</span><span class="lb">无在线设备</span></button>`;
+      box.querySelectorAll("button[data-cmd]").forEach((b) =>
+        b.onclick = () => send(b.dataset.cmd, b.dataset.arg));
+    } catch {}
+  }
+  refreshClients();
+  setInterval(refreshClients, 5000);
+
   // 进页面先探一下在线状态
   send("ping");
 </script>

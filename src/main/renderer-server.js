@@ -504,9 +504,20 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
           Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*',
         });
         res.write(': hello\n\n');
+        // client 注册制:每台设备就是一个 client id(?device=),在线列表由连接动态生成——
+        // 以后加 Windows/iPad/第二台手机都零改动,连上即出现在「串门」按钮里。
+        res._deviceId = (u.searchParams.get('device') || 'unknown').slice(0, 32);
         controlClients.add(res);
         const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch {} }, 25000);
         req.on('close', () => { clearInterval(ka); controlClients.delete(res); });
+        return;
+      }
+
+      // 在线 client 列表:[{id, present}],present=她此刻在不在那台
+      if (u.pathname === '/clients') {
+        const ids = [...new Set([...controlClients].map((c) => c._deviceId).filter((x) => x && x !== 'unknown'))];
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ clients: ids.map((id) => ({ id, present: presence.device === id })), presence: presence.device }));
         return;
       }
 
