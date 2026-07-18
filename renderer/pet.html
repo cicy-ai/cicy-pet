@@ -56,8 +56,10 @@
     // ---------- 漫游:她是会串门的旅行者,不属于任何一台设备 ----------
     // 每台设备(电脑/手机/Windows)各跑一个 pet.html;她"在"哪台,哪台就渲染+发声+对口型。
     // DEVICE = 本机身份;present = 她此刻在不在这台。goto<设备> 让目标飞入、其余飞出。
-    const DEVICE = params.get("device") || (window.electronAPI ? "mac" : "phone");
-    let present = params.get("away") ? false : true;   // 默认在场;?away=1 开局不在(等召唤)
+    // 注意:不能用下方才声明的 params(TDZ),这里直接读 URL。
+    const __q = new URLSearchParams(location.search);
+    const DEVICE = __q.get("device") || (window.electronAPI ? "mac" : "phone");
+    let present = __q.get("away") ? false : true;   // 默认在场;?away=1 开局不在(等召唤)
     const DEVICE_NAME = { mac: "电脑", phone: "手机", windows: "Windows" };
     // 她飞入这台设备:显示形象 + 入场特效 + 打招呼(桌面走真窗口飞行,手机走画布内飞入)
     async function arrive() {
@@ -119,7 +121,7 @@
     // stopSpeaking()，如果这些 let 放在文件后面，就会撞进 TDZ 直接抛
     // "Cannot access 'rafId' before initialization"，模型压根加不到舞台上。
     const HOP = 0.025;                 // 口型包络的步长（秒）
-    let audioCtx = null, srcNode = null, rafId = 0;
+    let audioCtx = null, srcNode = null, rafId = 0, streamStop = null;   // streamStop 也在此,否则 loadModel→stopSpeaking 撞 TDZ
 
     const dance = { on: false, bpm: 110, t0: 0 };
 
@@ -1720,7 +1722,7 @@
 
     // 流式播放：豆包 PCM 边收边排队播（首字快，无需等整句合成）。
     // 用一条运行光标 gaplessly 把小块接起来；口型由共享 analyser 实时驱动。
-    let streamStop = null;
+    // streamStop 已提到文件顶部的早期声明块（loadModel 会先用到）
     async function speakStream(text, fx) {
       const spoken = PRONOUNCE.reduce((t, [re, to]) => t.replace(re, to), text);
       const rate = fx === "whisper" ? "-12%" : (cfg.rate || "");   // 耳语：放慢，凑近说
