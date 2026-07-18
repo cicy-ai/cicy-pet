@@ -1904,20 +1904,9 @@
     }
 
     // ========== 小本本（喜好知识库手账） ==========
-    // 数据是真的：/memories 直读大脑（Sherlly）的持久记忆目录——recognizer 每轮
-    // 自动往里记，本本自己变厚。这里只负责把它演出来：奶油纸手账 + 分栏 + 星级，
-    // Alt+B 一按翻开，她还会念一条给你听（拍视频就怼这个画面）。
-    const NB_SECTIONS = [
-      { key: "preference", icon: "💛", label: "主人的喜好" },
-      { key: "person",     icon: "🧍", label: "在乎的人" },
-      { key: "fact",       icon: "📌", label: "习惯·小事" },
-      { key: "constraint", icon: "🚫", label: "千万别踩" },
-      { key: "knowledge",  icon: "🎓", label: "我学到的" },
-    ];
-    const NB_TYPE_MAP = { preference: "preference", person: "person", fact: "fact",
-                          constraint: "constraint", knowledge: "knowledge", procedure: "knowledge", lesson: "knowledge" };
-    let nbEl = null, nbOpen = false;
-
+    // 数据是真的：/memories 直读大脑（Sherlly）的持久记忆目录——recognizer 每轮自动往里记。
+    // 展示由独立大开本窗口 notebook.html 负责（主进程 toggle-notebook）；这里只管配音：
+    // 翻纸声 + 念最重要的一条。手机遥控发 notebook → 桌面这边翻本本并念。
     function nbPaperSfx() {   // 翻纸沙沙声：短促高通噪声两下
       audioCtx = audioCtx || new AudioContext(); audioCtx.resume();
       const t0 = audioCtx.currentTime, out = audioCtx.destination;
@@ -1933,67 +1922,8 @@
       });
     }
 
-    function nbBuild() {
-      if (nbEl) return nbEl;
-      const css = document.createElement("style");
-      css.textContent = `
-        #nb { position:fixed; left:18px; top:40px; width:352px; max-height:82vh; z-index:8;
-              font-family:"Kaiti SC","STKaiti","PingFang SC",serif; opacity:0; pointer-events:none;
-              transform:rotate(-2.2deg) translateY(14px) scale(.96); transform-origin:20% 0;
-              transition:opacity .35s ease, transform .45s cubic-bezier(.2,1.4,.4,1); filter:drop-shadow(0 10px 24px rgba(0,0,0,.5)); }
-        #nb.on { opacity:1; pointer-events:auto; transform:rotate(-2.2deg) translateY(0) scale(1); }
-        #nb .paper { background:linear-gradient(180deg,#fdf8ec,#f8efd9); border-radius:14px; padding:18px 18px 14px;
-              border:1px solid #e5d9b8; overflow:auto; max-height:78vh;
-              background-image:repeating-linear-gradient(180deg, transparent 0 27px, rgba(160,130,70,.14) 27px 28px); }
-        #nb .tape { position:absolute; left:50%; top:-12px; transform:translateX(-50%) rotate(1.5deg);
-              width:120px; height:26px; background:rgba(140,200,255,.55); border-radius:3px;
-              box-shadow:0 1px 3px rgba(0,0,0,.15); }
-        #nb h1 { margin:0 0 2px; font-size:22px; color:#7a5b22; letter-spacing:2px; }
-        #nb .sub { font-size:12px; color:#b09a6a; margin-bottom:10px; }
-        #nb .sec { margin:12px 0 4px; font-size:15px; color:#8a6a2a; border-bottom:2px dotted #d8c79c; padding-bottom:2px; }
-        #nb .it { margin:8px 0; line-height:1.45; }
-        #nb .it .t { font-size:15px; color:#5d4a1e; }
-        #nb .it .stars { color:#e0a63c; font-size:12px; margin-left:6px; letter-spacing:1px; }
-        #nb .it .c { font-size:13.5px; color:#7d6a42; }
-        #nb .it .d { font-size:11px; color:#bda87a; }
-        #nb .empty { font-size:13px; color:#b09a6a; font-style:italic; }
-      `;
-      document.head.appendChild(css);
-      nbEl = document.createElement("div");
-      nbEl.id = "nb";
-      nbEl.innerHTML = `<div class="tape"></div><div class="paper"><h1>雪莉的小本本</h1>
-        <div class="sub">关于守门人，我每天记一点 ✨</div><div id="nbBody"></div></div>`;
-      document.body.appendChild(nbEl);
-      return nbEl;
-    }
-
-    async function nbRender() {
-      nbBuild();
-      let entries = [];
-      try { entries = (await (await fetch("/memories")).json()).entries || []; } catch {}
-      const by = {};
-      for (const e of entries) {
-        const k = NB_TYPE_MAP[e.type] || "fact";
-        (by[k] = by[k] || []).push(e);
-      }
-      const body = nbEl.querySelector("#nbBody");
-      body.innerHTML = NB_SECTIONS.map((s) => {
-        const list = by[s.key] || [];
-        if (!list.length) return "";
-        const its = list.map((e) => `<div class="it"><span class="t">${e.title || e.mem_id}</span>` +
-          `<span class="stars">${"★".repeat(Math.max(1, Math.min(5, e.salience)))}</span><br>` +
-          `<span class="c">${e.content}</span><br>` +
-          `<span class="d">${(e.updated || "").slice(0, 10)}</span></div>`).join("");
-        return `<div class="sec">${s.icon} ${s.label}</div>${its}`;
-      }).join("") || `<div class="empty">还是空白的……多陪我聊聊，我就会记下关于你的一切啦。</div>`;
-      return entries;
-    }
-
     window.petNotebook = {
-      async show() { const es = await nbRender(); nbPaperSfx(); nbEl.classList.add("on"); nbOpen = true; return es.length; },
-      hide() { if (nbEl) nbEl.classList.remove("on"); nbOpen = false; },
-      toggle() { return nbOpen ? (this.hide(), 0) : this.show(); },
-      // 只念不开面板：大开本窗口（主进程 Alt+B）打开时配的嘴——翻纸声 + 念最重要一条
+      // 念最重要一条（大开本窗口打开时配的嘴）
       async say() {
         nbPaperSfx();
         let es = [];
@@ -2003,17 +1933,13 @@
         speak(`翻翻小本本……${top.title}：${top.content.split(/[。！!；;\n]/)[0]}。哼哼，我都记着呢！`);
         return top.mem_id;
       },
-      // 翻本本 + 念一条：优先走拍摄用大开本窗口；没有宿主（纯浏览器）才用窗内小面板
+      // 翻本本：开/关大开本窗口，开时念一条
       async tell() {
-        if (api?.toggleNotebook) {
-          const opened = await api.toggleNotebook();
-          if (opened) return this.say();
-          stopSpeaking();
-          return "closed";
-        }
-        if (nbOpen) { this.hide(); return "closed"; }
-        await this.show();
-        return this.say();
+        if (!api?.toggleNotebook) return "no-host";
+        const opened = await api.toggleNotebook();
+        if (opened) return this.say();
+        stopSpeaking();
+        return "closed";
       },
     };
   </script>

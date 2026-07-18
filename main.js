@@ -145,25 +145,26 @@ app.whenReady().then(async () => {
         }
         ctx.petWindow.webContents.executeJavaScript(code).catch(() => {});
     };
-    // 小本本(拍摄用大开本):单独一个大窗口在她旁边展开,字号按
-    // 「手机拍屏幕仍看得清」排版;她同时开口念一条。再开收起。
+    // 小本本:一本小巧的手账,不再占大半个屏。窗口紧贴内容——纸铺满整窗、
+    // 不透明,高度由页面 postMessage 上报的真实内容高度决定(空则矮,厚则长)。
     let notebookWindow = null;
     const toggleNotebook = () => {
         const { screen } = require('electron');
         const wa = screen.getPrimaryDisplay().workAreaSize;
         if (notebookWindow && !notebookWindow.isDestroyed()) {
             if (notebookWindow.isVisible()) { notebookWindow.hide(); return false; }
-            notebookWindow.webContents.reload();   // 重开时刷新——本本可能又厚了
+            notebookWindow.webContents.reload();
             notebookWindow.show();
             return true;
         }
-        const W = Math.min(860, Math.round(wa.width * 0.48));
-        const H = Math.round(wa.height * 0.94);
+        const W = 440;
+        const H = 560;   // 初始;加载后按内容自适应(见 ipc 'notebook-size')
         notebookWindow = new BrowserWindow({
-            width: W, height: H, x: 36, y: Math.round((wa.height - H) / 2),
-            frame: false, transparent: true, alwaysOnTop: true, resizable: true,
-            skipTaskbar: true, hasShadow: false,
-            webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
+            width: W, height: H, x: 40, y: Math.round((wa.height - H) / 2),
+            frame: false, transparent: true, alwaysOnTop: true, resizable: false,
+            skipTaskbar: true, hasShadow: true,
+            webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false,
+                preload: path.join(__dirname, 'notebook-preload.js') },
         });
         notebookWindow.setAlwaysOnTop(true, 'screen-saver');
         notebookWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -171,6 +172,16 @@ app.whenReady().then(async () => {
         notebookWindow.on('closed', () => { notebookWindow = null; });
         return true;
     };
+    // 页面量好真实高度后回报,窗口跟着收/放(限制在屏高内),纸永远铺满、无空透明边
+    ipcMain.on('notebook-size', (_e, h) => {
+        if (!notebookWindow || notebookWindow.isDestroyed()) return;
+        const { screen } = require('electron');
+        const wa = screen.getPrimaryDisplay().workAreaSize;
+        const H = Math.max(320, Math.min(Math.round(h) + 4, Math.round(wa.height * 0.9)));
+        const [w] = notebookWindow.getSize();
+        notebookWindow.setSize(w, H, false);
+        notebookWindow.setPosition(40, Math.round((wa.height - H) / 2));
+    });
     ipcMain.handle('toggle-notebook', () => toggleNotebook());
     // Alt+T = 实时片头:全屏窗口现场播 6s 片头动画(titlecard.html,纯 CSS 零渲染),
     // 关窗后无缝接 EP1 坠机预演——一镜到底,拍到的就是真实表演。点击可跳过。
