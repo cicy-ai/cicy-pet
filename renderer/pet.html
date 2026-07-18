@@ -1898,10 +1898,28 @@
             case "stop":      stopSpeaking(); break;
             case "say":       if (arg) speak(String(arg)); break;                // 手机打字→她开口
             case "ask":       if (arg) chatReply(String(arg)); break;            // 手机打字→问大脑→她回答
+            // ↓ 手机上的全套配置(换形象/换音色/语速/试听),作用在桌面这只雪莉身上并持久化
+            case "model":     if (arg && arg !== cfg.model) { cfg.model = String(arg); persistCfg(); await loadModel(cfg.model); } break;
+            case "voice":     if (arg) { cfg.voice = String(arg); if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; persistCfg(); } break;
+            case "rate":      if (arg != null) { cfg.rate = String(arg); persistCfg(); } break;
+            case "testvoice": speak(arg ? String(arg) : "你好呀守门人，我是雪莉，这是我现在的声音～"); break;
           }
         } catch (e) { console.warn("[control]", m.cmd, e); }
       };
     }
+
+    // 配置持久化:写回 localStorage(pet.html 下次启动读它);桌面宿主再落盘 config.json;
+    // 并上报给 server,让手机配置页能回显"当前用的形象/音色"。
+    function persistCfg() {
+      try { localStorage.setItem("pet_config", JSON.stringify({ model: cfg.model, engine: cfg.engine, voice: cfg.voice, rate: cfg.rate, pitch: cfg.pitch })); } catch {}
+      try { api?.saveConfig && api.saveConfig({ modelName: cfg.model, engine: cfg.engine, voice: cfg.voice, rate: cfg.rate, pitch: cfg.pitch }); } catch {}
+      reportCfg();
+    }
+    function reportCfg() {
+      try { fetch("/petcfg", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: cfg.model, voice: cfg.voice, rate: cfg.rate, engine: cfg.engine }) }); } catch {}
+    }
+    if (api) reportCfg();   // 桌面雪莉启动即上报一次当前配置
 
     // ========== 小本本（喜好知识库手账） ==========
     // 数据是真的：/memories 直读大脑（Sherlly）的持久记忆目录——recognizer 每轮自动往里记。

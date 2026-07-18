@@ -252,6 +252,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
   // 发消息给 cicy-code 的 agent pane，轮询 current-reply 直到那一轮跑完，取纯文本回复。
   const AGENT_BASE = process.env.CICY_API_PORT ? `http://127.0.0.1:${process.env.CICY_API_PORT}` : 'http://127.0.0.1:8008';
   const controlClients = new Set();   // /control-stream 的在线订阅者(桌面 pet.html)
+  let petCfg = {};                    // 桌面雪莉上报的当前配置(手机配置页回显用)
   // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
   // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。
   let noProxyDispatcher = null;
@@ -482,6 +483,23 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         controlClients.add(res);
         const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch {} }, 25000);
         req.on('close', () => { clearInterval(ka); controlClients.delete(res); });
+        return;
+      }
+
+      // 桌面雪莉上报当前配置(POST) / 手机读当前配置(GET)——配置页回显现状
+      if (u.pathname === '/petcfg') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', (c) => { body += c; });
+          req.on('end', () => {
+            try { petCfg = JSON.parse(body || '{}'); } catch {}
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end('{"ok":true}');
+          });
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(petCfg));
+        }
         return;
       }
 
