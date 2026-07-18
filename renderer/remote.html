@@ -39,6 +39,13 @@
   <h1>雪莉 · 导演台</h1>
   <div class="sub" id="status">连接中……</div>
 
+  <div class="sec">串 门（她在设备间搬家）</div>
+  <div class="grid3">
+    <button data-cmd="goto" data-arg="mac"><span class="ic">💻</span><span class="lb">来电脑</span></button>
+    <button data-cmd="goto" data-arg="phone"><span class="ic">📱</span><span class="lb">来手机</span></button>
+    <button data-cmd="goto" data-arg="windows"><span class="ic">🪟</span><span class="lb">去Windows</span></button>
+  </div>
+
   <div class="sec">开 拍</div>
   <div class="grid">
     <button class="big" data-cmd="titlecard"><span class="ic">🎬</span><span class="lb">一镜到底(片头→坠机→全剧)</span></button>
@@ -86,7 +93,7 @@
     } catch { toast("发送失败:网络不通"); }
   }
   document.querySelectorAll("button[data-cmd]").forEach((b) =>
-    b.addEventListener("click", () => send(b.dataset.cmd)));
+    b.addEventListener("click", () => send(b.dataset.cmd, b.dataset.arg)));
   document.getElementById("sayBtn").onclick = () => {
     const v = document.getElementById("sayText").value.trim();
     if (v) { send("say", v); document.getElementById("sayText").value = ""; }

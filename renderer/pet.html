@@ -53,6 +53,29 @@
     const $ = (id) => document.getElementById(id);
     const bus = new BroadcastChannel("live2d-pet");   // 和 settings.html 同源 → 直接通
 
+    // ---------- 漫游:她是会串门的旅行者,不属于任何一台设备 ----------
+    // 每台设备(电脑/手机/Windows)各跑一个 pet.html;她"在"哪台,哪台就渲染+发声+对口型。
+    // DEVICE = 本机身份;present = 她此刻在不在这台。goto<设备> 让目标飞入、其余飞出。
+    const DEVICE = params.get("device") || (window.electronAPI ? "mac" : "phone");
+    let present = params.get("away") ? false : true;   // 默认在场;?away=1 开局不在(等召唤)
+    const DEVICE_NAME = { mac: "电脑", phone: "手机", windows: "Windows" };
+    // 她飞入这台设备:显示形象 + 入场特效 + 打招呼(桌面走真窗口飞行,手机走画布内飞入)
+    async function arrive() {
+      if (present) return;
+      present = true;
+      if (window.__model) window.__model.visible = true;
+      if (window.electronAPI) { try { await windowFlight("我来啦——！", typeof landingSpot === "function" ? landingSpot() : undefined); } catch { playMove("flyin"); speak("我来啦——！"); } }
+      else { playMove("flyin"); setTimeout(() => speak("我来" + (DEVICE_NAME[DEVICE] || "") + "啦——！"), 300); }
+    }
+    // 她离开这台设备:甩出屏 + 藏起形象(去别处了)
+    function leave() {
+      if (!present) return;
+      present = false;
+      try { stopSpeaking(); } catch {}
+      try { flingOut(2300, -450); } catch {}
+      setTimeout(() => { if (window.__model && !present) window.__model.visible = false; }, 1400);
+    }
+
     // 配置：URL 参数 > localStorage > 默认。settings.html 写 localStorage + 广播，
     // 这边收到就实时应用（换角色不用重启）。
     const params = new URLSearchParams(location.search);
@@ -1341,6 +1364,8 @@
       }
 
       model = loaded;
+      window.__model = model;       // 漫游用:arrive/leave 切换可见性
+      model.visible = present;      // 开局若 ?away 则先藏着,等召唤飞入
       app.stage.addChild(model);
       model.anchor.set(0.5, 0.5);
       fit();
@@ -1414,6 +1439,8 @@
       if (!model) { console.error("[boot] 模型多次加载失败"); return; }
       bus.postMessage({ type: "ready" });
       if (params.get("entrance")) setTimeout(() => windowFlight(), 500);
+      if (params.get("say")) setTimeout(() => speak(params.get("say")), 800);   // 自测口型:?say=文字
+      window.__lipPeek = () => ({ active: lip.active, value: +lip.value.toFixed(3) });
     })();
 
     // 设置页发来的指令
@@ -1874,31 +1901,40 @@
     window.pet = { speak, motion: () => randomMotion(), stop: stopSpeaking, flyIn: () => windowFlight(),
                    flingOut: () => flingOut(2300, -450), chirp: () => dataChirp(), get model() { return model; } };
 
-    // ---------- 手机遥控执行器 ----------
-    // 手机是导演台:remote.html POST /control → 这里经 SSE 即时收到并执行。
-    // 只在桌面宿主(有 api)挂载——手机上打开的 pet.html 不该被自己遥控。
-    if (api) {
+    // ---------- 遥控执行器（手机 remote/config → /control → 这里执行）----------
+    // 无论桌面还是手机上打开的 pet.html 都挂载：说话/换装/跳舞/口型都在“看着她的
+    // 那台设备”上就地发生（手机上就手机放声+手机对口型）。只有“飞出屏幕/片头全屏”这
+    // 类真窗口控制才需要桌面宿主(api),没有就静默跳过——手机端天然降级。
+    {
       const es = new EventSource("/control-stream");
       es.onmessage = async (ev) => {
         let m = {};
         try { m = JSON.parse(ev.data); } catch { return; }
         const arg = m.arg;
         try {
+          // —— 漫游:goto<设备> 让她在设备间搬家。目标飞入、其余飞出 ——
+          if (m.cmd === "goto") { (String(arg) === DEVICE) ? arrive() : leave(); return; }
+          // 她不在这台时,只听 goto/换装/持久化指令;发声/演出类忽略(在别的设备上)
+          const localAct = ["notebook","dance","stopdance","spin","stop","say","ask","testvoice",
+                            "titlecard","demo","next","reset","fling","comeback"].includes(m.cmd);
+          if (localAct && !present) return;
+
           switch (m.cmd) {
-            case "titlecard": api.playTitleCard && api.playTitleCard(); break;   // 片头→坠机 一镜到底
-            case "demo":      window.petScript.demo(); break;                    // 直接坠机预演
-            case "next":      window.petScript.next(); break;                    // 剧本下一句
-            case "reset":     window.petScript.reset(); break;                   // 藏起来待命
-            case "fling":     flingOut(2300, -450); break;                       // 甩飞
+            // —— 需要桌面真窗口控制,手机上没有 api 就跳过 ——
+            case "titlecard": api?.playTitleCard?.(); break;                     // 片头→坠机 一镜到底
+            case "demo":      if (api) window.petScript.demo(); break;
+            case "next":      if (api) window.petScript.next(); break;
+            case "reset":     if (api) window.petScript.reset(); break;
+            case "fling":     flingOut(2300, -450); break;                       // 画布内也能演,保留
             case "comeback":  maoGone = false; windowFlight("哼！刚才是谁把人家甩出去的！", landingSpot()); break;
-            case "notebook":  window.petNotebook.tell(); break;                  // 小本本
+            // —— 设备无关:手机/桌面都就地执行 ——
+            case "notebook":  window.petNotebook.tell(); break;
             case "dance":     startMusic(PARTY_BPM); setDance(true, PARTY_BPM); break;
             case "stopdance": setDance(false); stopMusic(); break;
             case "spin":      playMove("spin"); break;
             case "stop":      stopSpeaking(); break;
-            case "say":       if (arg) speak(String(arg)); break;                // 手机打字→她开口
-            case "ask":       if (arg) chatReply(String(arg)); break;            // 手机打字→问大脑→她回答
-            // ↓ 手机上的全套配置(换形象/换音色/语速/试听),作用在桌面这只雪莉身上并持久化
+            case "say":       if (arg) speak(String(arg)); break;
+            case "ask":       if (arg) chatReply(String(arg)); break;
             case "model":     if (arg && arg !== cfg.model) { cfg.model = String(arg); persistCfg(); await loadModel(cfg.model); } break;
             case "voice":     if (arg) { cfg.voice = String(arg); if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; persistCfg(); } break;
             case "rate":      if (arg != null) { cfg.rate = String(arg); persistCfg(); } break;
