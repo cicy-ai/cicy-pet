@@ -60,54 +60,88 @@
       animation: spin 0.9s linear infinite; }
     #loading .msg { font-size: 15px; color: #86a8d8; letter-spacing: 1px; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    /* 手机版整体观感:星空深色底 + 脚下柔光地台(桌面浮窗保持透明,不受影响) */
-    body.phone { background: radial-gradient(ellipse 130% 70% at 50% 30%, #0d1736 0%, #070b1a 55%, #04060f 100%); }
+    /* 手机版整体观感:星空深色底 + 真·星星 + 脚下柔光地台(桌面浮窗保持透明,不受影响) */
+    body.phone { background: radial-gradient(ellipse 130% 70% at 50% 30%, #101c42 0%, #080d20 55%, #04060f 100%); }
+    body.phone::before { content: ""; position: fixed; inset: 0; pointer-events: none;
+      background-image:
+        radial-gradient(1.5px 1.5px at 12% 18%, rgba(255,255,255,.9), transparent),
+        radial-gradient(1px 1px at 32% 8%,  rgba(200,220,255,.8), transparent),
+        radial-gradient(1.5px 1.5px at 55% 14%, rgba(255,255,255,.7), transparent),
+        radial-gradient(1px 1px at 72% 26%, rgba(180,205,255,.8), transparent),
+        radial-gradient(2px 2px at 88% 10%, rgba(255,255,255,.85), transparent),
+        radial-gradient(1px 1px at 20% 42%, rgba(200,220,255,.6), transparent),
+        radial-gradient(1.5px 1.5px at 90% 40%, rgba(255,255,255,.5), transparent),
+        radial-gradient(1px 1px at 45% 33%, rgba(220,235,255,.7), transparent),
+        radial-gradient(1px 1px at 65% 48%, rgba(200,220,255,.5), transparent),
+        radial-gradient(1.5px 1.5px at 8% 62%,  rgba(255,255,255,.45), transparent),
+        radial-gradient(1px 1px at 80% 60%, rgba(200,220,255,.4), transparent);
+      animation: twinkle 5s ease-in-out infinite alternate; }
+    @keyframes twinkle { from { opacity: .55; } to { opacity: 1; } }
     body.phone::after { content: ""; position: fixed; left: 50%;
       bottom: calc(58px + env(safe-area-inset-bottom));   /* 光台贴着她的脚(语音条上沿) */
-      width: 78vw; height: 12vh; transform: translateX(-50%); pointer-events: none;
-      background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(90,150,255,.16), transparent 70%); }
+      width: 82vw; height: 13vh; transform: translateX(-50%); pointer-events: none;
+      background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(100,160,255,.20), transparent 68%); }
 
-    /* 手机专用:场控入口——右上角一枚半透明小圆钮,不抢戏。点开才展开
-       「去某台/召回」菜单(她在→去X;不在→召回),点完自动收起。 */
+    /* 手机专用:场控入口——右上角一枚半透明小圆钮,不抢戏。点开展开一张规整的卡片面板:
+       第一行当前状态(自动换行不溢出),下面「去某台/召回」按钮,点完自动收起。 */
     #stageCtl { display: none; position: fixed; top: calc(14px + env(safe-area-inset-top));
-      right: 12px; z-index: 45; flex-direction: column; align-items: flex-end; gap: 8px; }
+      right: 14px; z-index: 45; flex-direction: column; align-items: flex-end; gap: 10px; }
     body.phone #stageCtl { display: flex; }
-    #stageToggle { width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
-      background: rgba(18,48,94,.4); color: #9db8e8; font-size: 17px; opacity: .5;
-      backdrop-filter: blur(6px); -webkit-tap-highlight-color: transparent;
+    #stageToggle { width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+      border: 1px solid rgba(140,180,255,.18);
+      background: rgba(14,24,52,.55); color: #9db8e8; font-size: 17px; opacity: .6;
+      backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent;
       transition: opacity .15s ease, background .15s ease; }
-    #stageCtl.open #stageToggle { opacity: 1; background: rgba(18,48,94,.92); color: #eaf4ff; }
-    #stageMenu { display: none; flex-direction: column; align-items: flex-end; gap: 8px; }
-    #stageCtl.open #stageMenu { display: flex; }
-    #stageMenu button { border: none; cursor: pointer; padding: 10px 18px; border-radius: 20px;
-      font-size: 14px; color: #eaf4ff; background: rgba(18,48,94,.88); backdrop-filter: blur(6px);
-      font-family: "PingFang SC", system-ui; box-shadow: 0 3px 12px rgba(0,0,0,.4);
+    #stageCtl.open #stageToggle { opacity: 1; background: rgba(30,58,110,.95); color: #eaf4ff; }
+    #stageMenu { display: none; flex-direction: column; gap: 8px;
+      width: min(240px, 72vw); padding: 12px; border-radius: 18px;
+      background: rgba(10,17,36,.94); border: 1px solid rgba(140,180,255,.16);
+      box-shadow: 0 12px 36px rgba(0,0,0,.55); backdrop-filter: blur(14px); }
+    #stageCtl.open #stageMenu { display: flex; animation: menuIn .18s ease; }
+    @keyframes menuIn { from { opacity: 0; transform: translateY(-6px); } }
+    #stageMenu button { border: none; cursor: pointer; width: 100%; padding: 12px 14px;
+      border-radius: 12px; font-size: 14px; color: #dfeaff; text-align: left;
+      background: rgba(40,70,130,.45); font-family: "PingFang SC", system-ui;
       -webkit-tap-highlight-color: transparent; }
-    #stageMenu button:active { transform: scale(.95); }
-    #stageMenu button.primary { background: linear-gradient(135deg, #2a6fd0, #12305e); }
-    /* 当前状态:她此刻在哪个 client(短 id)。菜单展开时第一行就是它 */
-    #stageMenu .st { font-size: 12px; color: #86a8d8; background: rgba(7,11,26,.75);
-      padding: 6px 12px; border-radius: 14px; font-family: "PingFang SC", system-ui; }
-    /* 她不在这页时,屏幕正中不能空着:状态卡(她在哪)+ 一个召回按钮 */
+    #stageMenu button:active { transform: scale(.97); background: rgba(60,100,180,.6); }
+    #stageMenu button.primary { background: linear-gradient(135deg, #3c7fe0, #1a3d78); text-align: center; }
+    /* 当前状态行:允许换行,永不溢出面板 */
+    #stageMenu .st { font-size: 12px; line-height: 1.7; color: #8fb0e0;
+      padding: 2px 2px 6px; border-bottom: 1px solid rgba(140,180,255,.12);
+      font-family: "PingFang SC", system-ui; word-break: break-all; white-space: normal; }
+    /* 她不在这页时,屏幕正中:呼吸光球 + 两级文案 + 一个大召回按钮 */
     #awayCard { display: none; position: fixed; inset: 0; z-index: 30; pointer-events: none;
-      flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+      flex-direction: column; align-items: center; justify-content: center; gap: 0; }
     body.phone #awayCard.show { display: flex; }
-    #awayCard .ic { font-size: 46px; opacity: .85; animation: floaty 3s ease-in-out infinite; }
-    #awayCard .txt { font: 16px/1.6 "PingFang SC", system-ui; color: #a8c4ee; letter-spacing: 1px; }
-    #awayCard button { pointer-events: auto; border: none; cursor: pointer; margin-top: 6px;
-      padding: 14px 30px; border-radius: 26px; font-size: 16px; color: #eaf4ff;
-      font-family: "PingFang SC", system-ui; background: linear-gradient(135deg, #2a6fd0, #12305e);
-      box-shadow: 0 6px 20px rgba(20,60,140,.5); -webkit-tap-highlight-color: transparent; }
-    #awayCard button:active { transform: scale(.96); }
-    @keyframes floaty { 50% { transform: translateY(-9px); } }
+    #awayCard .orb { width: 108px; height: 108px; border-radius: 50%; position: relative;
+      display: flex; align-items: center; justify-content: center; font-size: 44px;
+      background: radial-gradient(circle at 35% 30%, rgba(120,170,255,.35), rgba(40,70,150,.18) 60%, transparent 75%);
+      animation: orbFloat 3.6s ease-in-out infinite; }
+    #awayCard .orb::before { content: ""; position: absolute; inset: -18px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(100,150,255,.22), transparent 65%);
+      animation: orbPulse 3.6s ease-in-out infinite; }
+    #awayCard .t1 { margin-top: 22px; font: 600 19px/1.4 "PingFang SC", system-ui;
+      color: #e8f1ff; letter-spacing: 2px; }
+    #awayCard .t2 { margin-top: 10px; font: 13px/1.7 "PingFang SC", system-ui;
+      color: #7f9dce; letter-spacing: .5px; max-width: 78vw; text-align: center; }
+    #awayCard button { pointer-events: auto; border: none; cursor: pointer; margin-top: 30px;
+      padding: 15px 44px; border-radius: 28px; font-size: 16px; letter-spacing: 2px;
+      color: #f2f7ff; font-family: "PingFang SC", system-ui;
+      background: linear-gradient(135deg, #4a8bef, #1c4488);
+      box-shadow: 0 8px 28px rgba(50,110,230,.4), inset 0 1px 0 rgba(255,255,255,.22);
+      -webkit-tap-highlight-color: transparent; transition: transform .12s ease; }
+    #awayCard button:active { transform: scale(.95); }
+    @keyframes orbFloat { 50% { transform: translateY(-10px); } }
+    @keyframes orbPulse { 50% { opacity: .45; transform: scale(1.12); } }
 
     /* 手机版语音键:微信式底部长条——拇指天然落点,左右手都顺手,按住说话松手发送。
        只有 body.phone 显示;适配 iPhone 底部安全区。 */
     #voiceBtn { display: none; position: fixed; left: 16px; right: 16px;
       bottom: calc(34px + env(safe-area-inset-bottom)); height: 58px;
-      border-radius: 27px; z-index: 40; border: none; cursor: pointer;
-      background: linear-gradient(180deg, #1c3a6e, #12305e); color: #dfeaff;
-      box-shadow: 0 6px 20px rgba(10,30,80,.55), inset 0 1px 0 rgba(255,255,255,.14);
+      border-radius: 29px; z-index: 40; cursor: pointer;
+      border: 1px solid rgba(140,180,255,.22);
+      background: linear-gradient(180deg, #22447e, #142f5e); color: #e6efff;
+      box-shadow: 0 8px 26px rgba(15,40,110,.55), inset 0 1px 0 rgba(255,255,255,.16);
       font: 16px/1 "PingFang SC", system-ui; letter-spacing: 4px;
       align-items: center; justify-content: center; gap: 8px;
       transition: transform .1s ease, background .15s ease; -webkit-tap-highlight-color: transparent;
@@ -129,9 +163,10 @@
     <div id="stageMenu"></div>
   </div>
   <div id="awayCard">
-    <div class="ic">🔭</div>
-    <div class="txt" id="awayTxt">她不在这里</div>
-    <button id="awayBack">🪄 召回到这里</button>
+    <div class="orb">🌙</div>
+    <div class="t1">雪莉去别处了</div>
+    <div class="t2" id="awayTxt">正在找她……</div>
+    <button id="awayBack">🪄 把她召回来</button>
   </div>
   <button id="voiceBtn">🎙️<span class="hint">按 住 说 话</span></button>
 
@@ -1415,13 +1450,22 @@
       try { data = await (await fetch("/clients")).json(); } catch { return; }
       const clients = data.clients || [];
       const here = clients.find((c) => c.present);
+      // 自愈:她挂在一个已下线的同平台 client 上(比如 WebView 刷新换了 id)——
+      // 自动把她接到我这来,不用人手点召回。开机 claim 只跑一次会输给"旧连接还没断"的竞态,
+      // 这里每轮轮询都补一刀,断连一超时她就自己飞回来。
+      if (!here && !present && data.platform === PLATFORM) {
+        try {
+          const pr = await (await fetch(`/presence?claim=${encodeURIComponent(CLIENT_ID)}&platform=${encodeURIComponent(PLATFORM)}`)).json();
+          if (pr && pr.client === CLIENT_ID) { arrive(); return; }
+        } catch {}
+      }
       const stTxt = here ? `她在 ${clientLabel(here).full}` : `她在 ${data.presence || "未知"}(离线)`;
       // 她不在这页 → 屏幕正中亮出状态卡(在哪 + 召回);在 → 收起
       const away = document.getElementById("awayCard");
       if (away) {
         away.classList.toggle("show", !present);
         document.getElementById("awayTxt").textContent =
-          here ? `她在 ${clientLabel(here).full}` : "她不知道飘到哪儿去了";
+          here ? `她此刻在 ${clientLabel(here).full}` : "信号断了,点下面接她回来";
       }
       let html = `<div class="st">${stTxt} · 我是 ${CLIENT_ID}</div>`;
       if (!present) {
