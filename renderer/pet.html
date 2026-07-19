@@ -1423,7 +1423,7 @@
         let toAgent = userText;
         if (SCREEN_INTENT.test(userText)) {
           const seen = await peekScreen(userText);
-          if (seen) toAgent = `【我瞄了一眼用户的屏幕，看到：${seen}】\n用户说：${userText}`;
+          if (seen) toAgent = `【屏幕:${seen}】${userText}`;   // 短标记即可:方括号=她瞥见的画面,其余是用户原话
         }
         const r = await fetch("/agent", {
           method: "POST",
