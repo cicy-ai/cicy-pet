@@ -20,14 +20,8 @@ function createTrayManager(ctx, deps) {
         }
         ctx.tray = new Tray(icon);
         ctx.tray.setToolTip('CiCy Pet');
-        ctx.tray.on('click', () => {
-            if (ctx.settingsWindow && !ctx.settingsWindow.isDestroyed()) {
-                ctx.settingsWindow.show();
-                ctx.settingsWindow.focus();
-            } else {
-                deps.createSettingsWindow();
-            }
-        });
+        // 点托盘图标只弹菜单,不直接开设置窗(用户 2026-07-19:「show setting 时再显示」)。
+        // mac 上 setContextMenu 后左右键默认都弹菜单,无需 click 处理。
         updateTrayMenu();
     }
 
