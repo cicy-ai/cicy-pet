@@ -437,9 +437,31 @@
       JSON.parse(localStorage.getItem(CFG_KEY) || "{}")
     );
 
+    // 形象/音色/语速是**全设备一份**的共享配置,真相在服务器(/petcfg)。
+    // 本页只是入口之一:启动先拉服务器配置(手机上改过的这里能看见),
+    // 改动回写 /control(服务器落盘 + 广播,手机同秒跟着变)。
+    let lastShared = {};
+    const sharedReady = (async () => {
+      try {
+        const pc = await (await fetch("/petcfg")).json();
+        if (pc.model) cfg.model = pc.model;
+        if (pc.voice) cfg.voice = pc.voice;
+        if (pc.engine) cfg.engine = pc.engine;
+        if (pc.rate) cfg.rate = pc.rate;
+        lastShared = { model: pc.model, voice: pc.voice, rate: pc.rate };
+        localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+      } catch {}
+    })();
     function save() {
       localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
       bus.postMessage({ type: "config", cfg });   // 宠物窗口实时跟着变
+      for (const k of ["model", "voice", "rate"]) {
+        if (cfg[k] && cfg[k] !== lastShared[k]) {
+          lastShared[k] = cfg[k];
+          fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cmd: k, arg: cfg[k] }) }).catch(() => {});
+        }
+      }
     }
 
     // ---------- 折叠面板 ----------
@@ -997,7 +1019,7 @@
       if (e.data?.type === "caps") { caps = e.data; buildEmotionLists(); configureEmotion(); }
     });
 
-    loadModels();
+    sharedReady.then(loadModels);   // 先拿到服务器真相再渲染,选中态才不会骗人
     loadVoices();
     initBrain();
 
