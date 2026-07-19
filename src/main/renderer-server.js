@@ -532,7 +532,8 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         res._clientId = (u.searchParams.get('client') || u.searchParams.get('device') || 'unknown').slice(0, 32);
         res._platform = (u.searchParams.get('platform') || 'unknown').slice(0, 16);
         controlClients.add(res);
-        const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch {} }, 25000);
+        // 心跳发真事件(不是注释行):EventSource 看不见注释,页面要靠它判断连接是否僵死
+        const ka = setInterval(() => { try { res.write('data: {"cmd":"ka"}\n\n'); } catch {} }, 20000);
         req.on('close', () => { clearInterval(ka); controlClients.delete(res); });
         return;
       }

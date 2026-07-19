@@ -2305,11 +2305,29 @@
     // 那台设备”上就地发生（手机上就手机放声+手机对口型）。只有“飞出屏幕/片头全屏”这
     // 类真窗口控制才需要桌面宿主(api),没有就静默跳过——手机端天然降级。
     {
-      const es = new EventSource("/control-stream?client=" + encodeURIComponent(CLIENT_ID) +
-        "&platform=" + encodeURIComponent(PLATFORM));
-      es.onmessage = async (ev) => {
+      // SSE 自愈:隧道里的长连接会"僵而不死"(server 觉得在,页面收不到)。服务器每 20s
+      // 发一条心跳事件;45s 没收到任何消息 = 僵死,自己重建连接;重建/回到前台立即全量对齐。
+      // 这样配置/位置变更平时走 SSE **秒级到达**,轮询只是最后兜底。
+      let es = null, esLast = 0;
+      const SSE_URL = "/control-stream?client=" + encodeURIComponent(CLIENT_ID) +
+        "&platform=" + encodeURIComponent(PLATFORM);
+      function connectSSE() {
+        try { es && es.close(); } catch {}
+        es = new EventSource(SSE_URL);
+        esLast = Date.now();
+        es.onopen = () => { esLast = Date.now(); if (DEVICE === "phone" && typeof reflectLoc === "function") reflectLoc(); };
+        es.onmessage = (ev) => { esLast = Date.now(); handleCtl(ev); };
+      }
+      setInterval(() => { if (Date.now() - esLast > 45000) connectSSE(); }, 10000);
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) return;
+        if (Date.now() - esLast > 25000) connectSSE();          // 后台被冻过 → 立刻换新连接
+        if (DEVICE === "phone" && typeof reflectLoc === "function") reflectLoc();   // 回前台马上对齐
+      });
+      const handleCtl = async (ev) => {
         let m = {};
         try { m = JSON.parse(ev.data); } catch { return; }
+        if (m.cmd === "ka") return;   // 心跳,只为证明连接活着
         const arg = m.arg;
         try {
           // —— 漫游接力:服务器把 goto 拆成 leave→(等飞走)→arrive 两段广播,只对目标设备生效 ——
@@ -2344,6 +2362,7 @@
           }
         } catch (e) { console.warn("[control]", m.cmd, e); }
       };
+      connectSSE();
     }
 
     // 配置持久化:写回 localStorage(pet.html 下次启动读它);桌面宿主再落盘 config.json;
