@@ -100,28 +100,11 @@ function registerScreenCapture(ctx, ipcMain, deps) {
         catch { return false; }
     }
 
-    ipcMain.handle('get-active-window', async () => {
-        if (!axTrusted()) return { success: false, error: 'accessibility not granted' };
-        try {
-            const activeWin = (await import('active-win')).default;
-            const result = await activeWin();
-            if (result) return { success: true, data: result };
-            return { success: false, error: 'no active window' };
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
-    });
-
-    ipcMain.handle('get-open-windows', async () => {
-        if (!axTrusted()) return { success: false, error: 'accessibility not granted' };
-        try {
-            const { getOpenWindows } = await import('active-win');
-            const windows = await getOpenWindows();
-            return { success: true, data: windows || [] };
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
-    });
+    // active-win 彻底停用(2026-07-19):它是旧「观察主人窗口」系统的引擎,被设置页每秒轮询;
+    // 每次运行都向系统要辅助功能+屏幕录制,权限不齐就每秒弹一次授权框("怎么还有"事件)。
+    // 大脑已是 Sherlly,这套观察不再需要——IPC 保留但恒返回失败,绝不碰系统 API。
+    ipcMain.handle('get-active-window', async () => ({ success: false, error: 'disabled' }));
+    ipcMain.handle('get-open-windows', async () => ({ success: false, error: 'disabled' }));
 
     ipcMain.handle('get-system-idle-time', () => {
         return powerMonitor.getSystemIdleTime();
