@@ -2340,6 +2340,7 @@
             case "voice":     if (arg) { cfg.voice = String(arg); if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; persistCfg(); } break;
             case "rate":      if (arg != null) { cfg.rate = String(arg); persistCfg(); } break;
             case "testvoice": speak(arg ? String(arg) : "你好呀守门人，我是雪莉，这是我现在的声音～"); break;
+            case "reload":    location.reload(); break;   // 远程让所有在线页面换血(发版后一键刷)
           }
         } catch (e) { console.warn("[control]", m.cmd, e); }
       };
