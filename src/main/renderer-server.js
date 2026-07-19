@@ -272,6 +272,14 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     for (const c of controlClients) { if (c._clientId) seen.set(c._clientId, c._platform || 'unknown'); }
     return seen;   // Map<clientId, platform>
   };
+  // pet.html 版本号(mtime,5s 缓存)——变了说明代码更新了,常驻页面据此自动 reload
+  let _petV = { t: 0, v: 0 };
+  const petHtmlVersion = () => {
+    if (Date.now() - _petV.t > 5000) {
+      try { _petV = { t: Date.now(), v: Math.round(fs.statSync(path.join(appDir, 'renderer', 'pet.html')).mtimeMs) }; } catch {}
+    }
+    return _petV.v;
+  };
   // Electron 主进程带着会话代理（http_proxy=127.0.0.1:9001），fetch 会把本机 8008 也
   // 发去代理导致连不上 → 给 agent 请求显式关代理（Node18+ fetch 支持 dispatcher）。
   let noProxyDispatcher = null;
@@ -535,8 +543,10 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         const clients = [...seen.entries()].filter(([id]) => id !== 'unknown')
           .map(([id, platform]) => ({ id, platform, present: presence.client === id }));
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        // cfg 一并带上:换形象/音色的广播也可能在隧道重连间隙丢——客户端靠这轮询追平
-        res.end(JSON.stringify({ clients, presence: presence.client, platform: presence.platform, cfg: petCfg }));
+        // cfg 一并带上:换形象/音色的广播也可能在隧道重连间隙丢——客户端靠这轮询追平。
+        // v = pet.html 的 mtime:手机页面常驻几小时不刷新,发现版本变了就自己 reload,
+        // 否则每次改版都要人肉刷新,改了也"不生效"。
+        res.end(JSON.stringify({ clients, presence: presence.client, platform: presence.platform, cfg: petCfg, v: petHtmlVersion() }));
         return;
       }
 

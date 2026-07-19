@@ -1507,6 +1507,18 @@
       try { data = await (await fetch("/clients")).json(); } catch { return; }
       const clients = data.clients || [];
       const here = clients.find((c) => c.present);
+      // 版本自更新:pet.html 改版后,常驻的手机页面自己 reload 拿新代码(30s 防抖防循环)。
+      if (data.v) {
+        if (!window.__pageV) window.__pageV = data.v;
+        else if (data.v !== window.__pageV) {
+          const last = +sessionStorage.getItem("sherlly.rl") || 0;
+          if (Date.now() - last > 30000) {
+            try { sessionStorage.setItem("sherlly.rl", String(Date.now())); } catch {}
+            location.reload();
+            return;
+          }
+        }
+      }
       applySharedCfg(data.cfg);   // 形象/音色/语速追平(不阻塞位置对齐)
       // SSE 广播是尽力而为——隧道断线重连的间隙里 leave/arrive 会整条丢
       // (「去了mac手机还在」「召回了手机不出现」都是这么来的)。
