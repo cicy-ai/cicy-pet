@@ -1461,55 +1461,30 @@
       if (reply) await speak(reply);
     }
 
+    // 说话排队:跟播的 say 段落一句接一句念(speak 会掐掉上一句,不排队就互相打断)
+    const sayQ = [];
+    let sayBusy = false;
+    async function enqueueSay(text) {
+      sayQ.push(text);
+      if (sayBusy) return;
+      sayBusy = true;
+      while (sayQ.length) { try { await speakReply(sayQ.shift()); } catch {} }
+      sayBusy = false;
+    }
+
     async function chatReply(userText) {
-      // 实时跟播:她干活期间说的每一句(工具调用之间的叙述)一到就念,不憋到最后。
-      // NDJSON 流 {say} 逐段进队列,speakReply 播完一句念下一句;{done} 后清完队列收工。
+      // 发问不等答:把话送进雪莉就完事。她说的**所有话**(不管谁问的)由服务器的
+      // 全局跟播器统一广播 say 回来,executor 里 speakReply 排队念——一个出声通道。
       try {
-        const r = await fetch("/agent-stream", {
+        const r = await fetch("/agent-send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: userText }),
         });
-        if (!r.ok || !r.body) throw new Error("stream " + r.status);
-        const reader = r.body.getReader();
-        const dec = new TextDecoder();
-        let buf = "", spoke = false, streamErr = null;
-        const q = [];
-        let drainP = Promise.resolve(), draining = false;
-        const drain = async () => {
-          if (draining) return; draining = true;
-          while (q.length) { await speakReply(q.shift()); spoke = true; }
-          draining = false;
-        };
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (value) buf += dec.decode(value, { stream: true });
-          let nl;
-          while ((nl = buf.indexOf("\n")) >= 0) {
-            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-            if (!line) continue;
-            let m = {};
-            try { m = JSON.parse(line); } catch { continue; }
-            if (m.say) { q.push(m.say); drainP = drain(); }
-            if (m.done && m.error) streamErr = m.error;
-          }
-          if (done) break;
-        }
-        await drainP;
-        while (draining || q.length) { await new Promise((r2) => setTimeout(r2, 200)); }   // 等背景 drain 彻底念完
-        if (streamErr) throw new Error(streamErr);
-        if (!spoke) await speakReply("嗯……我这会儿没想好怎么答。");
+        if (!r.ok) throw new Error(await r.text());
       } catch (e) {
-        console.warn("[chat] 流式失败,退回一次性:", e.message || e);
-        try {
-          const r = await fetch("/agent", { method: "POST",
-            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: userText }) });
-          if (!r.ok) throw new Error(await r.text());
-          await speakReply(((await r.json()).answer || "").trim() || "嗯……我这会儿没想好怎么答。");
-        } catch (e2) {
-          speak("呜，连不上大脑。");
-          console.error("[chat]", e2);
-        }
+        speak("呜，连不上大脑。");
+        console.error("[chat]", e);
       }
     }
 
@@ -2447,8 +2422,8 @@
             case "sing":      singShow(); break;
             case "stopsing":  stopSing(); break;
             case "spin":      playMove("spin"); break;
-            case "stop":      stopSing(); stopSpeaking(); break;
-            case "say":       if (arg) speak(String(arg)); break;
+            case "stop":      sayQ.length = 0; stopSing(); stopSpeaking(); break;
+            case "say":       if (arg) enqueueSay(String(arg)); break;
             case "ask":       if (arg) chatReply(String(arg)); break;
             case "model":     if (arg && arg !== cfg.model) { dlog(`sse model -> ${arg}`); cfg.model = String(arg); persistCfg(); try { await loadModel(cfg.model); dlog("sse loadModel ok"); } catch (e) { dlog(`sse loadModel FAIL ${e.message || e}`); throw e; } } break;
             case "voice":     if (arg) { cfg.voice = String(arg); if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; persistCfg(); } break;

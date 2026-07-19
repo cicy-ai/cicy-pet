@@ -272,6 +272,43 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     for (const c of controlClients) { if (c._clientId) seen.set(c._clientId, c._platform || 'unknown'); }
     return seen;   // Map<clientId, platform>
   };
+  const bcastAll = (obj) => {
+    const p = JSON.stringify({ ...obj, t: Date.now() });
+    for (const c of controlClients) { try { c.write(`data: ${p}\n\n`); } catch {} }
+  };
+  // —— 全局跟播(唯一发声通道):不管谁在跟 Sherlly 说话(按住说话/聊天界面打字/别的
+  // agent 发消息),她的每段新回复都广播 say 给"她在"的设备念出来(speak 有 present 闸,
+  // 只有一台出声)。段落生长缓冲防半句+整句双读;走 WS 广播,不怕隧道缓冲流式 HTTP。
+  (async function replyWatcher() {
+    let inited = false, cur = '';
+    const seen = new Set();
+    const flush = () => {
+      const t = cur.trim();
+      cur = '';
+      if (!t || seen.has(t)) return;
+      if (seen.size > 300) seen.clear();
+      seen.add(t);
+      bcastAll({ cmd: 'say', arg: t });
+    };
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 700));
+      try {
+        const token = await agentToken();
+        const pane = await agentPane();
+        const j = await (await agentFetch(`${AGENT_BASE}/api/agents/current-reply/${pane}`,
+          { headers: { Authorization: `Bearer ${token}` } })).json();
+        const ans = (j.answer || '').trim();
+        if (!inited) { inited = true; if (ans) seen.add(ans); cur = ''; continue; }   // 启动时不补读历史
+        if (ans) {
+          if (!cur || ans.startsWith(cur)) cur = ans;   // 同段生长中
+          else { flush(); cur = ans; }                  // 换段 → 上一段定稿
+        } else if (cur) {
+          flush();                                      // 段结束(跑工具去了)
+        }
+        if (j.complete && cur) flush();                 // 整轮完成 → 收尾段落
+      } catch {}
+    }
+  })();
   const dbgLog = [];   // /debug-log 环形缓冲
   // pet.html 版本号(mtime,5s 缓存)——变了说明代码更新了,常驻页面据此自动 reload
   let _petV = { t: 0, v: 0 };
@@ -643,64 +680,28 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         });
         return;
       }
-      // 流式版:Sherlly 干活期间说的每一句话(工具调用之间的过程叙述)实时推给桌宠念出来。
-      // NDJSON:每行 {say:"..."};结束行 {done:true, answer:"最终回复"}。
-      // current-reply 的 answer 字段在轮次进行中会闪现"最新一段文本"——400ms 高频轮询抓取,
-      // 去重后逐段下发;complete 后把最终回复(若没念过)补上。
-      if (u.pathname === '/agent-stream' && req.method === 'POST') {
+      // 发问不取答:把话送进 Sherlly 就返回。她的回复由全局跟播器(replyWatcher)统一
+      // 广播 say 到"她在"的设备念出——所有对话一个出声通道,不管谁发起的。
+      if (u.pathname === '/agent-send' && req.method === 'POST') {
         const chunks = [];
         req.on('data', (c) => chunks.push(c));
         req.on('end', async () => {
           let text = '';
           try { text = (JSON.parse(Buffer.concat(chunks).toString()).text || '').trim(); } catch {}
           if (!text) { res.statusCode = 400; return res.end('text required'); }
-          res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-          const emit = (obj) => { try { res.write(JSON.stringify(obj) + '\n'); } catch {} };
           try {
             const token = await agentToken();
             const pane = await agentPane();
-            const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-            const replyUrl = `${AGENT_BASE}/api/agents/current-reply/${pane}`;
-            let baseTurn = '';
-            try { baseTurn = (await (await agentFetch(replyUrl, { headers: H })).json()).turn_id || ''; } catch {}
             const send = await agentFetch(`${AGENT_BASE}/api/tmux/send`, {
-              method: 'POST', headers: H,
+              method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ win_id: pane, text, submit: true }),
             });
             if (!send.ok) throw new Error(`send ${send.status}`);
-            // 段落生长缓冲:current-reply 的文本是逐字长出来的,直接见到就发会把
-            // "半句"和"整句"各念一遍(用户实测"会 read 两次")。规则:同一段还在生长
-            // (新快照是旧快照的前缀延伸)就先攒着;段落结束(被清空/换了不同内容/轮次
-            // 完成)才下发定稿,seen 去重兜底。
-            const seen = new Set();
-            let cur = '';
-            const flush = () => {
-              const t = cur.trim();
-              cur = '';
-              if (t && !seen.has(t)) { seen.add(t); emit({ say: t }); }
-            };
-            const deadline = Date.now() + 180000;   // 长任务给足 3 分钟
-            while (Date.now() < deadline && !res.writableEnded) {
-              await new Promise((r) => setTimeout(r, 250));
-              let j;
-              try { j = await (await agentFetch(replyUrl, { headers: H })).json(); } catch { continue; }
-              const turn = (j.turn_id || '').trim();
-              if (turn === baseTurn && !j.complete) continue;   // 还没开新轮
-              const ans = (j.answer || '').trim();
-              if (ans) {
-                if (!cur || ans.startsWith(cur)) cur = ans;   // 同段生长中,继续攒
-                else { flush(); cur = ans; }                  // 内容换了 → 上一段定稿下发
-              } else if (cur) {
-                flush();                                      // 段结束(开始跑工具,文本被清)
-              }
-              if (turn && turn !== baseTurn && j.complete) { flush(); emit({ done: true, answer: ans }); return res.end(); }
-            }
-            emit({ done: true, timeout: true });
-            res.end();
+            res.writeHead(202, { 'Content-Type': 'application/json' });
+            res.end('{"ok":true}');
           } catch (e) {
-            log('[agent-stream] failed:', e.message);
-            emit({ done: true, error: String(e.message || e) });
-            try { res.end(); } catch {}
+            log('[agent-send] failed:', e.message);
+            res.statusCode = 500; res.end('send failed: ' + e.message);
           }
         });
         return;
