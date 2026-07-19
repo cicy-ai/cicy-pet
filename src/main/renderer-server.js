@@ -643,6 +643,53 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         });
         return;
       }
+      // 流式版:Sherlly 干活期间说的每一句话(工具调用之间的过程叙述)实时推给桌宠念出来。
+      // NDJSON:每行 {say:"..."};结束行 {done:true, answer:"最终回复"}。
+      // current-reply 的 answer 字段在轮次进行中会闪现"最新一段文本"——400ms 高频轮询抓取,
+      // 去重后逐段下发;complete 后把最终回复(若没念过)补上。
+      if (u.pathname === '/agent-stream' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', async () => {
+          let text = '';
+          try { text = (JSON.parse(Buffer.concat(chunks).toString()).text || '').trim(); } catch {}
+          if (!text) { res.statusCode = 400; return res.end('text required'); }
+          res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+          const emit = (obj) => { try { res.write(JSON.stringify(obj) + '\n'); } catch {} };
+          try {
+            const token = await agentToken();
+            const pane = await agentPane();
+            const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+            const replyUrl = `${AGENT_BASE}/api/agents/current-reply/${pane}`;
+            let baseTurn = '';
+            try { baseTurn = (await (await agentFetch(replyUrl, { headers: H })).json()).turn_id || ''; } catch {}
+            const send = await agentFetch(`${AGENT_BASE}/api/tmux/send`, {
+              method: 'POST', headers: H,
+              body: JSON.stringify({ win_id: pane, text, submit: true }),
+            });
+            if (!send.ok) throw new Error(`send ${send.status}`);
+            const seen = new Set();
+            const deadline = Date.now() + 180000;   // 长任务给足 3 分钟
+            while (Date.now() < deadline && !res.writableEnded) {
+              await new Promise((r) => setTimeout(r, 400));
+              let j;
+              try { j = await (await agentFetch(replyUrl, { headers: H })).json(); } catch { continue; }
+              const turn = (j.turn_id || '').trim();
+              if (turn === baseTurn && !j.complete) continue;   // 还没开新轮
+              const ans = (j.answer || '').trim();
+              if (ans && !seen.has(ans)) { seen.add(ans); emit({ say: ans }); }
+              if (turn && turn !== baseTurn && j.complete) { emit({ done: true, answer: ans }); return res.end(); }
+            }
+            emit({ done: true, timeout: true });
+            res.end();
+          } catch (e) {
+            log('[agent-stream] failed:', e.message);
+            emit({ done: true, error: String(e.message || e) });
+            try { res.end(); } catch {}
+          }
+        });
+        return;
+      }
       // GLM-4V-Flash(免费)描述一张截图 —— /vision 和 /peek 共用(key 不暴露给页面)
       async function describeImage(image, prompt) {
         const key = (await readSecrets()).zhipuKey;

@@ -1435,44 +1435,81 @@
     // 「看屏幕」不再由客户端做关键词判断/注入上下文——那是她自己的能力:
     // 需要时她自己 curl 服务器的 /peek(主进程截 mac 屏 + GLM-4V 描述)。零提示词。
 
+    // 把大脑的一段文本收拾干净并念出来:剥动作暗号并执行、去 markdown/表格、超长截到句边界。
+    // 返回 Promise,播完才回——流式队列靠它一句接一句不打架。
+    async function speakReply(raw) {
+      let reply = (raw || "").trim();
+      if (!reply) return;
+      for (const [tag, act] of Object.entries(ACTION_TAGS)) {
+        if (reply.includes(tag)) {
+          reply = reply.split(tag).join("");
+          try { act(); } catch (err) { console.error("[action]", tag, err); }
+        }
+      }
+      reply = reply
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/^\s*\|.*\|\s*$/gm, (r) => r.replace(/\|/g, "，").replace(/[-:\s]{3,}/g, ""))
+        .replace(/^[-*•>#]+\s*/gm, "")
+        .replace(/[#*`_~|]/g, "")
+        .replace(/\n{2,}/g, "。").replace(/\n/g, "，")
+        .replace(/[，。]{2,}/g, (m) => m[m.length - 1]).trim();
+      if (reply.length > 200) {
+        const cut = reply.slice(0, 200);
+        const lastEnd = Math.max(cut.lastIndexOf("。"), cut.lastIndexOf("！"), cut.lastIndexOf("？"));
+        reply = lastEnd > 40 ? cut.slice(0, lastEnd + 1) : cut + "。";
+      }
+      if (reply) await speak(reply);
+    }
+
     async function chatReply(userText) {
+      // 实时跟播:她干活期间说的每一句(工具调用之间的叙述)一到就念,不憋到最后。
+      // NDJSON 流 {say} 逐段进队列,speakReply 播完一句念下一句;{done} 后清完队列收工。
       try {
-        // 零提示词:用户原话直达雪莉。"看屏幕"是她自己的能力(她会按需 curl /peek),
-        // 不在客户端做关键词判断、不注入任何上下文(用户 2026-07-19:"必须加那么多提示词么")。
-        const r = await fetch("/agent", {
+        const r = await fetch("/agent-stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: userText }),
         });
-        if (!r.ok) throw new Error(await r.text());
-        let reply = ((await r.json()).answer || "").trim();
-        if (!reply) { speak("嗯……我这会儿没想好怎么答。"); return; }
-        // 动作暗号（若 Sherlly 用了）——读出来之前剥掉并执行
-        for (const [tag, act] of Object.entries(ACTION_TAGS)) {
-          if (reply.includes(tag)) {
-            reply = reply.split(tag).join("");
-            try { act(); } catch (err) { console.error("[action]", tag, err); }
+        if (!r.ok || !r.body) throw new Error("stream " + r.status);
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "", spoke = false, streamErr = null;
+        const q = [];
+        let drainP = Promise.resolve(), draining = false;
+        const drain = async () => {
+          if (draining) return; draining = true;
+          while (q.length) { await speakReply(q.shift()); spoke = true; }
+          draining = false;
+        };
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (value) buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+            if (!line) continue;
+            let m = {};
+            try { m = JSON.parse(line); } catch { continue; }
+            if (m.say) { q.push(m.say); drainP = drain(); }
+            if (m.done && m.error) streamErr = m.error;
           }
+          if (done) break;
         }
-        // Sherlly 是干活 agent，回复常带 markdown / 表格 / 很长。清成能顺口念的文本：
-        // 去代码块、去表格行、拆表头、markdown 符号 → 空，多余空行并成句号。
-        reply = reply
-          .replace(/```[\s\S]*?```/g, "")
-          .replace(/^\s*\|.*\|\s*$/gm, (r) => r.replace(/\|/g, "，").replace(/[-:\s]{3,}/g, ""))
-          .replace(/^[-*•>#]+\s*/gm, "")
-          .replace(/[#*`_~|]/g, "")
-          .replace(/\n{2,}/g, "。").replace(/\n/g, "，")
-          .replace(/[，。]{2,}/g, (m) => m[m.length - 1]).trim();
-        // 太长就在句子边界收尾（别切半句）：优先留完整的前几句，上限 ~200 字
-        if (reply.length > 200) {
-          const cut = reply.slice(0, 200);
-          const lastEnd = Math.max(cut.lastIndexOf("。"), cut.lastIndexOf("！"), cut.lastIndexOf("？"));
-          reply = lastEnd > 40 ? cut.slice(0, lastEnd + 1) : cut + "。";
-        }
-        if (reply) speak(reply);
+        await drainP;
+        while (draining || q.length) { await new Promise((r2) => setTimeout(r2, 200)); }   // 等背景 drain 彻底念完
+        if (streamErr) throw new Error(streamErr);
+        if (!spoke) await speakReply("嗯……我这会儿没想好怎么答。");
       } catch (e) {
-        speak("呜，连不上大脑。");
-        console.error("[chat]", e);
+        console.warn("[chat] 流式失败,退回一次性:", e.message || e);
+        try {
+          const r = await fetch("/agent", { method: "POST",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: userText }) });
+          if (!r.ok) throw new Error(await r.text());
+          await speakReply(((await r.json()).answer || "").trim() || "嗯……我这会儿没想好怎么答。");
+        } catch (e2) {
+          speak("呜，连不上大脑。");
+          console.error("[chat]", e2);
+        }
       }
     }
 
