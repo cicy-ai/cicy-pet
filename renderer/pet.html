@@ -1752,13 +1752,7 @@
       // 点击身体触发动作、点头切表情
       model.on("hit", (areas) => {
         dlog("hit " + areas.join(","));
-        const has = (n) => areas.some((a) => a.toLowerCase().includes(n));
-        // 点头=换表情(模型得真有表情,Hiyori/Rice 这类没表情的点哪都播动作);
-        // 点身体=播她自带的 TapBody 动作组(randomMotion 优先找 tap 组)
-        let exprN = 0;
-        try { exprN = (model.internalModel.settings.expressions || []).length; } catch {}
-        if (has("head") && exprN) model.expression();
-        else randomMotion();
+        tapAct(areas.some((a) => a.toLowerCase().includes("head")));
       });
 
       const core = model.internalModel.coreModel;
@@ -1977,6 +1971,37 @@
       model.scale.set(baseScale);
       model.position.set(basePos.x, basePos.y);
     }
+
+    // 点按 → 她自带的反应。直接绑定,不依赖 pixi 的 hit 插件(那条链路在真机上时灵时不灵)。
+    // tapAct 做统一出口 + 500ms 去重(pixi hit 偶尔也会到,别双触发)。
+    let lastTapAct = 0;
+    function tapAct(isHead) {
+      const now = performance.now();
+      if (now - lastTapAct < 500) return;
+      lastTapAct = now;
+      let exprN = 0;
+      try { exprN = (model.internalModel.settings.expressions || []).length; } catch {}
+      // 点头=换表情(模型真有表情才换,没有就播动作);点身体=她自带的 TapBody 动作
+      if (isHead && exprN) model.expression();
+      else randomMotion();
+    }
+    (function wireTap() {
+      let t0 = 0, x0 = 0, y0 = 0;
+      const pt = (e) => (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+      window.addEventListener("pointerdown", (e) => { const p = pt(e); t0 = performance.now(); x0 = p.clientX; y0 = p.clientY; }, true);
+      window.addEventListener("pointerup", (e) => {
+        const p = pt(e);
+        if (performance.now() - t0 > 400) return;                       // 按太久=长按/拖,不算点
+        if (Math.hypot(p.clientX - x0, p.clientY - y0) > 12) return;    // 移动了=拖动,不算点
+        if (!present || !model || !model.visible) return;               // 她不在,点空气
+        if (e.target && /BUTTON|INPUT|A/.test(e.target.tagName)) return; // 点的是按钮不是她
+        const b = model.getBounds();
+        if (p.clientX < b.x || p.clientX > b.x + b.width || p.clientY < b.y || p.clientY > b.y + b.height) return;
+        const isHead = p.clientY < b.y + b.height * 0.3;                // 上 30% 当头
+        dlog("tap " + (isHead ? "head" : "body"));
+        tapAct(isHead);
+      }, true);
+    })();
 
     function randomMotion() {
       const mm = model.internalModel.motionManager;
