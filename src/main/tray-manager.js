@@ -44,6 +44,8 @@ function createTrayManager(ctx, deps) {
                 if (deps.createPetWindow) await deps.createPetWindow();
                 updateTrayMenu();
             }},
+            // 「显示」只现身不挪窝;「回到右下角」才归位——两个独立功能(用户 2026-07-19)
+            { label: '回到右下角', click: () => { deps.dockPetWindow && deps.dockPetWindow(); } },
             { label: mt('tray.hidePet'), enabled: hasPet, click: () => {
                 if (ctx.petWindow && !ctx.petWindow.isDestroyed()) ctx.petWindow.close();
             }},

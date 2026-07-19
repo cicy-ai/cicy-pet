@@ -42,12 +42,12 @@ const basePath = __dirname;
 
 // ========== Register Modules ==========
 
-const { createSettingsWindow, createPetWindow } = registerWindowHandlers(ctx, ipcMain, {
+const { createSettingsWindow, createPetWindow, dockPetWindow } = registerWindowHandlers(ctx, ipcMain, {
     BrowserWindow, path, basePath, updateTrayMenu: () => trayManager.updateTrayMenu()
 });
 
 const trayManager = createTrayManager(ctx, {
-    Tray, Menu, path, mt, basePath, app, createSettingsWindow, createPetWindow
+    Tray, Menu, path, mt, basePath, app, createSettingsWindow, createPetWindow, dockPetWindow
 });
 
 registerScreenCapture(ctx, ipcMain, { desktopCapturer, powerMonitor });

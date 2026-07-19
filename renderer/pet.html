@@ -2487,11 +2487,9 @@
     // 它是一个单独的透明窗口，浮在宠物上方，**不会被宠物窗口 340x420 的边界裁掉**。
     // 我们自己画在窗口里的那个气泡，长句子会被切。没有 preload 时（纯浏览器）才回落。
     function bubble(text, on) {
-      if (api?.showPetChat) {
-        if (on && text) api.showPetChat(text, 8000);
-        else api.closeChatBubble?.();
-        return;
-      }
+      // 桌面:默认不显示头顶字幕(用户 2026-07-19「默认不要显示人物头上的字幕」),
+      // 她说话有声音就够了。手机底部字幕(语音识别/长回答)不受影响。
+      if (api) return;
       const b = $("bubble");
       if (on) {
         // 用户手动往回翻时不打扰;否则跟着她说的进度自动滚到底
