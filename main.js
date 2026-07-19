@@ -108,14 +108,18 @@ app.whenReady().then(async () => {
             perms: (open) => {
                 const { systemPreferences, shell } = require('electron');
                 if (process.platform !== 'darwin') return { platform: process.platform, screen: 'granted', microphone: 'granted' };
-                if (open === 'screen') shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
-                if (open === 'microphone') shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+                const PANES = {
+                    screen: 'Privacy_ScreenCapture', microphone: 'Privacy_Microphone',
+                    camera: 'Privacy_Camera', accessibility: 'Privacy_Accessibility',
+                };
+                if (PANES[open]) shell.openExternal('x-apple.systempreferences:com.apple.preference.security?' + PANES[open]);
                 let ax = false;
                 try { ax = systemPreferences.isTrustedAccessibilityClient(false); } catch {}
                 return {
                     platform: 'darwin',
                     screen: systemPreferences.getMediaAccessStatus('screen'),
                     microphone: systemPreferences.getMediaAccessStatus('microphone'),
+                    camera: systemPreferences.getMediaAccessStatus('camera'),
                     accessibility: ax ? 'granted' : 'denied',
                 };
             },

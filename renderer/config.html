@@ -111,16 +111,23 @@
     try { p = await (await fetch("/perms" + (open ? "?open=" + open : ""))).json(); } catch {}
     const box = document.getElementById("perms");
     if (!p) { box.innerHTML = '<div style="color:#86a8d8;font-size:13px">读取失败(桌面 App 不在线?)</div>'; return; }
-    const row = (icon, name, val, key) => {
+    // 全量权限清单:App 会碰到的每一项,标注用途 + 是否必需 + 当前状态
+    const row = (icon, name, use, val, key, need) => {
       const ok = val === "granted";
+      let right;
+      if (ok) right = `<span style="color:#6fdc8c;font-size:13px;white-space:nowrap">● 已授权</span>`;
+      else if (need) right = `<button data-open="${key}" style="background:#3a2530;border:1px solid #6a3545;color:#ffb3c0;border-radius:10px;padding:8px 12px;font-size:13px;white-space:nowrap">未授权 · 去开启</button>`;
+      else right = `<span style="color:#5a7099;font-size:13px;white-space:nowrap">○ ${val === "not-determined" ? "从未询问" : "未授权"}(不需要)</span>`;
       return `<div style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px">` +
-        `<span style="font-size:18px">${icon}</span><span style="flex:1">${name}</span>` +
-        (ok ? `<span style="color:#6fdc8c;font-size:13px">● 已授权</span>`
-            : `<button data-open="${key}" style="background:#3a2530;border:1px solid #6a3545;color:#ffb3c0;border-radius:10px;padding:8px 12px;font-size:13px">未授权 · 去开启</button>`) +
-        `</div>`;
+        `<span style="font-size:18px">${icon}</span>` +
+        `<span style="flex:1;min-width:0"><div>${name}</div><div style="color:#5a7099;font-size:12px;margin-top:2px">${use}</div></span>` +
+        right + `</div>`;
     };
-    box.innerHTML = row("👀", "屏幕录制(她看屏幕用)", p.screen, "screen") +
-                    row("🎙️", "麦克风(桌面收音用)", p.microphone, "microphone");
+    box.innerHTML =
+      row("👀", "屏幕录制", "她的眼睛:回答「我在干嘛/桌面上有什么」要靠它截屏", p.screen, "screen", true) +
+      row("🎙️", "麦克风", "桌面端收音(手机说话用手机自己的麦,不占这个)", p.microphone, "microphone", true) +
+      row("🖐️", "辅助功能", "旧版「观察主人窗口」功能用的,现已停用——保持关闭即可", p.accessibility, "accessibility", false) +
+      row("📷", "摄像头", "完全没用到", p.camera, "camera", false);
     box.querySelectorAll("button[data-open]").forEach((b) => b.onclick = () => {
       renderPerms(b.dataset.open);
       toast("已在电脑上打开系统设置,去 Mac 勾上 CiCy Desktop/Electron");
