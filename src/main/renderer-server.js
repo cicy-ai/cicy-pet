@@ -590,7 +590,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
           }
         }
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ ...presence, cfg: petCfg }));   // 桌面 8s 对齐轮询顺带追平共享配置
+        res.end(JSON.stringify({ ...presence, cfg: petCfg, v: petHtmlVersion() }));   // 桌面对齐轮询顺带追平配置+版本
         return;
       }
 
