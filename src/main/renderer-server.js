@@ -671,7 +671,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
             const seen = new Set();
             const deadline = Date.now() + 180000;   // 长任务给足 3 分钟
             while (Date.now() < deadline && !res.writableEnded) {
-              await new Promise((r) => setTimeout(r, 400));
+              await new Promise((r) => setTimeout(r, 250));
               let j;
               try { j = await (await agentFetch(replyUrl, { headers: H })).json(); } catch { continue; }
               const turn = (j.turn_id || '').trim();
