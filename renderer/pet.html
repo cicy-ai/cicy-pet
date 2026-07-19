@@ -995,7 +995,7 @@
       app.ticker.add(() => {
         // 看门狗：长按发起的录音，但长按状态已经不在了（松手事件被劫持/丢失）→ 强制收尾。
         // 无论哪个环节丢了 pointerup，这里每帧兜底，录音不可能卡死。
-        if (rec && rec.byHold && !pttHolding) voiceFinish();
+        if (rec && !rec.finishing && rec.byHold && !pttHolding) voiceFinish();
         if (!aura) return;
         const target = auraOn && model ? 1 : 0;
         aura.alpha += (target - aura.alpha) * 0.12;
@@ -1149,6 +1149,12 @@
         if (recStarting) pendingFinish = true;   // 麦克风还在开 → 记账，开完立即收
         return;
       }
+      if (rec.finishing) return;             // 防重入(看门狗/多次松手)
+      rec.finishing = true;
+      // 松手缓冲:手指抬起时尾音往往还没说完/还压在 ScriptProcessor 的缓冲里(~256ms),
+      // 立刻掐断就是"字幕缺最后半个词"。多录 450ms 再收——录音继续流向 ASR,字幕还在长。
+      await new Promise((r) => setTimeout(r, 450));
+      if (!rec) return;                      // 缓冲期内被取消(上滑/打断)
       auraOn = false;                        // 光环渐隐
       duckMusic(false);
       const { ctx, proc, bufs, segs, ws } = rec;
@@ -1160,12 +1166,12 @@
         try { ws?.close(); } catch {}
         bubble("", false); return;
       }
-      // 催火山出定稿，最多等 1.2s 收尾帧
+      // 催火山出定稿——刚补送的尾音要时间识别,多等一点(1.6s),定稿一到立即放行
       let text = "";
       if (ws && ws.readyState === 1) {
         try { ws.send(JSON.stringify({ type: "flush" })); } catch {}
         await new Promise((done) => {
-          const t = setTimeout(done, 1200);
+          const t = setTimeout(done, 1600);
           ws.onmessage = (ev) => {
             try {
               const m = JSON.parse(ev.data);
