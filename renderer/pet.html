@@ -1590,7 +1590,7 @@
     let fastUntil = 0;
     function kickSync() { fastUntil = Date.now() + 12000; }
     if (DEVICE === "phone") {
-      setInterval(reflectLoc, 6000);   // 设备上下线/她被别处召走,定时对齐
+      setInterval(reflectLoc, 3000);   // 兜底轮询(主通道是 WS 毫秒级;这只是保险,3s 足够密)
       setInterval(() => { if (Date.now() < fastUntil) reflectLoc(); }, 1000);
       const ctl = document.getElementById("stageCtl");
       document.getElementById("stageToggle").onclick = () => {
@@ -1614,7 +1614,7 @@
           if (present && pr.client && pr.client !== CLIENT_ID) leave();
           else if (!present && pr.client === CLIENT_ID) arrive();
         } catch {}
-      }, 8000);
+      }, 5000);
     }
 
     // superfly 音效：飞行段长哨声，落地闷响+弹簧，第二跳补一声小闷响
@@ -2318,14 +2318,18 @@
       // 发一条心跳事件;45s 没收到任何消息 = 僵死,自己重建连接;重建/回到前台立即全量对齐。
       // 这样配置/位置变更平时走 SSE **秒级到达**,轮询只是最后兜底。
       let es = null, esLast = 0;
-      const SSE_URL = "/control-stream?client=" + encodeURIComponent(CLIENT_ID) +
-        "&platform=" + encodeURIComponent(PLATFORM);
+      // 控制通道走 WebSocket(不是 SSE):hub 代理会缓冲 SSE,手机上永远打不开;
+      // WS 穿隧道已被 /asr 验证——广播毫秒到,这才是"秒同步"的正体。
+      const CTL_QS = "client=" + encodeURIComponent(CLIENT_ID) + "&platform=" + encodeURIComponent(PLATFORM);
       function connectSSE() {
         try { es && es.close(); } catch {}
-        es = new EventSource(SSE_URL);
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        const w = new WebSocket(`${proto}://${location.host}/control-ws?${CTL_QS}`);
+        es = w;
         esLast = Date.now();
-        es.onopen = () => { esLast = Date.now(); dlog("sse open"); if (DEVICE === "phone" && typeof reflectLoc === "function") reflectLoc(); };
-        es.onmessage = (ev) => { esLast = Date.now(); handleCtl(ev); };
+        w.onopen = () => { esLast = Date.now(); dlog("ws open"); if (DEVICE === "phone" && typeof reflectLoc === "function") reflectLoc(); };
+        w.onmessage = (ev) => { esLast = Date.now(); handleCtl(ev); };
+        w.onclose = () => { setTimeout(() => { if (es === w) connectSSE(); }, 2000); };   // 断线 2s 内重连
       }
       setInterval(() => { if (Date.now() - esLast > 45000) connectSSE(); }, 10000);
       document.addEventListener("visibilitychange", () => {

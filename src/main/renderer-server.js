@@ -776,9 +776,27 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
       });
       ws.on('close', () => session.close());
     });
+    // 控制通道 WS 版:hub 代理会缓冲 SSE(手机上 EventSource 永远 open 不了,广播全靠
+    // 轮询兜底才显得慢)。WS 已被 /asr 证明能穿透隧道——毫秒级广播就靠它。
+    // shim 伪装成 SSE client 放进同一个 controlClients,bcast 一行不用改;老页面的 SSE 照旧。
+    const ctlWss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+    ctlWss.on('connection', (ws, req) => {
+      const q = new URL(req.url, 'http://x').searchParams;
+      const shim = {
+        _clientId: (q.get('client') || 'unknown').slice(0, 32),
+        _platform: (q.get('platform') || 'unknown').slice(0, 16),
+        write: (s) => { try { ws.send(s.replace(/^data: /, '').trim()); } catch {} },
+      };
+      controlClients.add(shim);
+      const ka = setInterval(() => { try { ws.send('{"cmd":"ka"}'); } catch {} }, 20000);
+      ws.on('close', () => { clearInterval(ka); controlClients.delete(shim); });
+      ws.on('error', () => {});
+    });
     server.on('upgrade', (req, socket, head) => {
-      if (new URL(req.url, 'http://x').pathname !== '/asr') { socket.destroy(); return; }
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+      const p = new URL(req.url, 'http://x').pathname;
+      if (p === '/asr') return wss.handleUpgrade(req, socket, head, (w) => wss.emit('connection', w, req));
+      if (p === '/control-ws') return ctlWss.handleUpgrade(req, socket, head, (w) => ctlWss.emit('connection', w, req));
+      socket.destroy();
     });
   } catch (e) { log('[asr] streaming bridge unavailable:', e.message); }
 
