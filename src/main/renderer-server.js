@@ -272,6 +272,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
     for (const c of controlClients) { if (c._clientId) seen.set(c._clientId, c._platform || 'unknown'); }
     return seen;   // Map<clientId, platform>
   };
+  const dbgLog = [];   // /debug-log 环形缓冲
   // pet.html 版本号(mtime,5s 缓存)——变了说明代码更新了,常驻页面据此自动 reload
   let _petV = { t: 0, v: 0 };
   const petHtmlVersion = () => {
@@ -549,6 +550,25 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         // 否则每次改版都要人肉刷新,改了也"不生效"。
         res.end(JSON.stringify({ clients, presence: presence.client, platform: presence.platform, cfg: petCfg, v: petHtmlVersion() }));
         return;
+      }
+
+      // 黑匣子:页面把关键步骤/报错回传,排「手机上到底发生了什么」这类隔空谜题。
+      // 内存环形缓冲 300 条,GET 直接看。
+      if (u.pathname === '/debug-log') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', (c) => { body += c; });
+          req.on('end', () => {
+            try {
+              const { m } = JSON.parse(body || '{}');
+              if (m) { dbgLog.push(new Date().toISOString().slice(11, 19) + ' ' + String(m).slice(0, 500)); if (dbgLog.length > 300) dbgLog.shift(); }
+            } catch {}
+            res.writeHead(204); res.end();
+          });
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(dbgLog.join('\n'));
       }
 
       // 她此刻在哪个 client(唯一在场)。新页面加载先问这里,决定显示还是藏起来。

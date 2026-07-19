@@ -197,6 +197,13 @@
       try { sessionStorage.setItem("sherlly.cid", CLIENT_ID); } catch {}
     }
     let present = __q.get("away") ? false : true;   // 默认在场;?away=1 开局不在(等召唤)
+    // 黑匣子:关键步骤回传服务器(/debug-log),隔空排查手机上的疑难杂症
+    const dlog = (m) => { try { fetch("/debug-log", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ m: `[${CLIENT_ID}] ${m}` }) }); } catch {} };
+    window.addEventListener("error", (e) => dlog(`JSERR ${e.message} @${(e.filename || "").split("/").pop()}:${e.lineno}`));
+    window.addEventListener("unhandledrejection", (e) => dlog(`REJ ${e.reason && (e.reason.message || e.reason)}`));
+    dlog(`boot device=${PLATFORM} ua=${navigator.userAgent.slice(0, 60)}`);
     // 手机才有 UI(loading/语音/场控);桌面透明浮窗保持原样。尽早打标,避免闪。
     if (DEVICE === "phone") document.body.classList.add("phone");
     const DEVICE_NAME = { mac: "电脑", phone: "手机", windows: "Windows" };
@@ -1570,8 +1577,10 @@
       }
       if (pc.rate && pc.rate !== cfg.rate) cfg.rate = pc.rate;
       if (pc.model && pc.model !== cfg.model) {
+        dlog(`cfg-sync model ${cfg.model} -> ${pc.model}`);
         cfg.model = pc.model;                     // 先记下再加载:加载慢时下一轮轮询不会重复触发
-        try { await loadModel(cfg.model); } catch (e) { console.warn("[cfg-sync] loadModel", e); }
+        try { await loadModel(cfg.model); dlog(`cfg-sync loadModel ok`); }
+        catch (e) { dlog(`cfg-sync loadModel FAIL ${e.message || e}`); }
       }
       try { localStorage.setItem("pet_config", JSON.stringify({ model: cfg.model, engine: cfg.engine, voice: cfg.voice, rate: cfg.rate, pitch: cfg.pitch })); } catch {}
     }
@@ -2315,7 +2324,7 @@
         try { es && es.close(); } catch {}
         es = new EventSource(SSE_URL);
         esLast = Date.now();
-        es.onopen = () => { esLast = Date.now(); if (DEVICE === "phone" && typeof reflectLoc === "function") reflectLoc(); };
+        es.onopen = () => { esLast = Date.now(); dlog("sse open"); if (DEVICE === "phone" && typeof reflectLoc === "function") reflectLoc(); };
         es.onmessage = (ev) => { esLast = Date.now(); handleCtl(ev); };
       }
       setInterval(() => { if (Date.now() - esLast > 45000) connectSSE(); }, 10000);
@@ -2354,7 +2363,7 @@
             case "stop":      stopSpeaking(); break;
             case "say":       if (arg) speak(String(arg)); break;
             case "ask":       if (arg) chatReply(String(arg)); break;
-            case "model":     if (arg && arg !== cfg.model) { cfg.model = String(arg); persistCfg(); await loadModel(cfg.model); } break;
+            case "model":     if (arg && arg !== cfg.model) { dlog(`sse model -> ${arg}`); cfg.model = String(arg); persistCfg(); try { await loadModel(cfg.model); dlog("sse loadModel ok"); } catch (e) { dlog(`sse loadModel FAIL ${e.message || e}`); throw e; } } break;
             case "voice":     if (arg) { cfg.voice = String(arg); if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; persistCfg(); } break;
             case "rate":      if (arg != null) { cfg.rate = String(arg); persistCfg(); } break;
             case "testvoice": speak(arg ? String(arg) : "你好呀守门人，我是雪莉，这是我现在的声音～"); break;
