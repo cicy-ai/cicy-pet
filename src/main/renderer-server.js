@@ -535,7 +535,8 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         const clients = [...seen.entries()].filter(([id]) => id !== 'unknown')
           .map(([id, platform]) => ({ id, platform, present: presence.client === id }));
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ clients, presence: presence.client, platform: presence.platform }));
+        // cfg 一并带上:换形象/音色的广播也可能在隧道重连间隙丢——客户端靠这轮询追平
+        res.end(JSON.stringify({ clients, presence: presence.client, platform: presence.platform, cfg: petCfg }));
         return;
       }
 
@@ -551,7 +552,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
           }
         }
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify(presence));
+        res.end(JSON.stringify({ ...presence, cfg: petCfg }));   // 桌面 8s 对齐轮询顺带追平共享配置
         return;
       }
 

@@ -1507,6 +1507,7 @@
       try { data = await (await fetch("/clients")).json(); } catch { return; }
       const clients = data.clients || [];
       const here = clients.find((c) => c.present);
+      applySharedCfg(data.cfg);   // 形象/音色/语速追平(不阻塞位置对齐)
       // SSE 广播是尽力而为——隧道断线重连的间隙里 leave/arrive 会整条丢
       // (「去了mac手机还在」「召回了手机不出现」都是这么来的)。
       // 服务器 presence 是唯一真相,每轮轮询强制对齐:该走没走→走,该来没来→来。
@@ -1546,6 +1547,23 @@
           document.getElementById("stageCtl").classList.remove("open"); };
       });
     }
+    // 共享配置(形象/音色/语速)对齐:换形象的广播也可能在隧道重连间隙丢——
+    // 轮询时拿服务器的唯一真相追平,哪台落后了几秒内自动换过来。
+    async function applySharedCfg(pc) {
+      if (!pc) return;
+      if (pc.voice && pc.voice !== cfg.voice) {
+        cfg.voice = pc.voice;
+        if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao";
+        else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge";
+      }
+      if (pc.rate && pc.rate !== cfg.rate) cfg.rate = pc.rate;
+      if (pc.model && pc.model !== cfg.model) {
+        cfg.model = pc.model;                     // 先记下再加载:加载慢时下一轮轮询不会重复触发
+        try { await loadModel(cfg.model); } catch (e) { console.warn("[cfg-sync] loadModel", e); }
+      }
+      try { localStorage.setItem("pet_config", JSON.stringify({ model: cfg.model, engine: cfg.engine, voice: cfg.voice, rate: cfg.rate, pitch: cfg.pitch })); } catch {}
+    }
+
     // 点了召回/去某台之后的 12s 内轮询提速到 1s 一次——广播丢了也能秒级对齐,
     // 不用干等 6s 才见她动。
     let fastUntil = 0;
@@ -1567,10 +1585,11 @@
           body: JSON.stringify({ cmd: "goto", arg: CLIENT_ID }) }).catch(() => {});
       };
     } else {
-      // 桌面同样以服务器为真相兜底:广播丢了/服务器重启,8s 内自动对齐(含无主过继)
+      // 桌面同样以服务器为真相兜底:广播丢了/服务器重启,8s 内自动对齐(含无主过继+配置追平)
       setInterval(async () => {
         try {
           const pr = await (await fetch(`/presence?claim=${encodeURIComponent(CLIENT_ID)}&platform=${encodeURIComponent(PLATFORM)}`)).json();
+          applySharedCfg(pr.cfg);
           if (present && pr.client && pr.client !== CLIENT_ID) leave();
           else if (!present && pr.client === CLIENT_ID) arrive();
         } catch {}
