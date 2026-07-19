@@ -42,6 +42,7 @@ function createTrayManager(ctx, deps) {
             // createPetWindow 对活着的窗口会自动拉回屏内并 show。
             { label: mt('tray.showPet'), click: async () => {
                 if (deps.createPetWindow) await deps.createPetWindow();
+                deps.recallToDesktop && deps.recallToDesktop();   // 她在手机上?一并召回桌面
                 updateTrayMenu();
             }},
             { label: mt('tray.hidePet'), enabled: hasPet, click: () => {

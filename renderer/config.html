@@ -247,7 +247,14 @@
     $("dockBtn").onclick = async () => {
       const b = await api.getWindowBounds();
       api.setWindowPosition(screen.availWidth - b.width - 20, screen.availHeight - b.height - 40);
-      toast("已挪回右下角");
+      // 她人在别处(比如手机)也一并召回桌面——「回右下角」=人回桌面,不只是挪窗
+      try {
+        const d = await (await fetch("/clients")).json();
+        const desk = (d.clients || []).find((c) => c.platform !== "phone");
+        if (desk && !desk.present) await send("goto", desk.id);
+      } catch {}
+      toast("已归位,雪莉回到桌面");
+      setTimeout(refreshHero, 2500);
     };
     $("hidePetBtn").onclick = () => { api.closePetWindow?.(); toast("已隐藏,托盘可再显示"); };
   })();

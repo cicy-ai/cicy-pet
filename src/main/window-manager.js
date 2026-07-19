@@ -58,6 +58,19 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
 
     // ========== Pet Window ==========
 
+    // 把雪莉本人召回本机(goto 本页面的 client id)。只挂在用户主动操作上
+    // (托盘「显示宠物」/设置页「回右下角」)——开机自启绝不调用,不然每次重启都把她
+    // 从手机上偷回来。页面可能刚建还没 boot 完,失败静默,3s 后补一刀。
+    function recallToDesktop() {
+        const js = 'typeof CLIENT_ID!=="undefined"&&fetch("/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cmd:"goto",arg:CLIENT_ID})}).catch(()=>{})';
+        const fire = () => {
+            if (ctx.petWindow && !ctx.petWindow.isDestroyed())
+                ctx.petWindow.webContents.executeJavaScript(js).catch(() => {});
+        };
+        fire();
+        setTimeout(fire, 3000);
+    }
+
     async function createPetWindow(data) {
         try {
             if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
@@ -272,7 +285,7 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
         }
     });
 
-    return { createSettingsWindow, createPetWindow };
+    return { createSettingsWindow, createPetWindow, recallToDesktop };
 }
 
 module.exports = { registerWindowHandlers };
