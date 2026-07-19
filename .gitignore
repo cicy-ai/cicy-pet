@@ -14,3 +14,4 @@ renderer/.tts-cache/
 # 本地自用可保留在磁盘（个人/小规模使用是允许的）。见 NOTICE。
 renderer/models/
 secrets.json
+.tts-cache/
