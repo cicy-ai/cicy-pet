@@ -267,14 +267,8 @@
       if (typeof reflectLoc === "function") reflectLoc();
       const m = window.__model;
       if (m) {
-        entranceSfx();
-        m.visible = true; m.alpha = 0; m.y = typeof m.y === "number" ? m.y : 0;
-        const t0 = performance.now();
-        (function fadeIn() {
-          const p = Math.min(1, (performance.now() - t0) / 250);
-          m.alpha = p;
-          if (p < 1) requestAnimationFrame(fadeIn);
-        })();
+        entranceSfx();                 // "咔嚓"闪现声
+        m.visible = true; m.alpha = 1; // 瞬间现身,零动画——默认入场绝不幽灵(用户点名两次)
       }
       setTimeout(() => speak("我来" + (DEVICE_NAME[DEVICE] || "") + "啦——！"), 450);
     }
@@ -1910,7 +1904,8 @@
         if (ld) setTimeout(() => ld.classList.add("hidden"), present ? 200 : 900);
         reflectLoc();
       }
-      if (present && params.get("entrance")) setTimeout(() => windowFlight(), 500);   // 只有她在这台才入场
+      // 默认入场不搞排场(用户点名:不要幽灵/螺旋)——闪现声即到。螺旋 windowFlight 只留给 [飞入]/叫回来。
+      if (present && params.get("entrance")) setTimeout(() => entranceSfx(), 500);
       if (present && params.get("say")) setTimeout(() => speak(params.get("say")), 800);   // 自测口型:?say=文字
       window.__lipPeek = () => ({ active: lip.active, value: +lip.value.toFixed(3) });
     })();
