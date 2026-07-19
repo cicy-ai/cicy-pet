@@ -107,6 +107,14 @@ app.whenReady().then(async () => {
             // 一次性截图,不轮询;需要系统「屏幕录制」权限(没给时静默返回空)。
             capture: async () => {
                 try {
+                    // 权限闸:屏幕录制没授权就静默返回——不去撞 getSources,
+                    // 否则每次尝试都弹一次系统授权框(和 active-win 同款骚扰)。
+                    const { systemPreferences } = require('electron');
+                    if (process.platform === 'darwin'
+                        && systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
+                        console.error('[capture] screen recording not granted — skip');
+                        return null;
+                    }
                     const sources = await desktopCapturer.getSources({
                         types: ['screen'], thumbnailSize: { width: 1024, height: 1024 } });
                     const th = sources[0] && sources[0].thumbnail;

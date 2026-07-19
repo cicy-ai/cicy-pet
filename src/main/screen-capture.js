@@ -13,7 +13,15 @@ function registerScreenCapture(ctx, ipcMain, deps) {
     // deps: { desktopCapturer, powerMonitor }
     const { desktopCapturer, powerMonitor } = deps;
 
+    // 屏幕录制权限闸:未授权时静默失败,不触发系统弹窗(每次 getSources 未授权都会弹一次)
+    function screenGranted() {
+        if (process.platform !== 'darwin') return true;
+        try { return require('electron').systemPreferences.getMediaAccessStatus('screen') === 'granted'; }
+        catch { return false; }
+    }
+
     ipcMain.handle('get-screen-capture', async (event, targetTitle) => {
+        if (!screenGranted()) return null;
         let winSources = null, sources = null;
         try {
             if (targetTitle) {
@@ -48,6 +56,7 @@ function registerScreenCapture(ctx, ipcMain, deps) {
     });
 
     ipcMain.handle('get-screen-capture-hq', async (event, targetTitle) => {
+        if (!screenGranted()) return null;
         let winSources = null, sources = null;
         try {
             if (targetTitle) {
