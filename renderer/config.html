@@ -146,7 +146,7 @@
       <button class="deskBtn" data-size="340">标准</button>
       <button class="deskBtn" data-size="480">大</button>
       <button class="deskBtn" data-size="640">特大</button>
-      <button class="deskBtn" id="dockBtn">↘ 回右下角</button>
+      <button class="deskBtn" id="dockBtn">🐱 显示宠物</button>
       <button class="deskBtn" id="hidePetBtn">🫥 隐藏宠物</button>
     </div>
   </div>
@@ -281,16 +281,15 @@
     };
     sz.oninput = () => applySize(sz.value);
     document.querySelectorAll(".deskBtn[data-size]").forEach((b) => b.onclick = () => applySize(b.dataset.size));
+    // 和托盘「显示宠物」同一条路径:建窗/现身/屏外自动归位(createPetWindow)+ 把她本人召回桌面
     $("dockBtn").onclick = async () => {
-      const b = await api.getWindowBounds();
-      api.setWindowPosition(screen.availWidth - b.width - 20, screen.availHeight - b.height - 40);
-      // 她人在别处(比如手机)也一并召回桌面——「回右下角」=人回桌面,不只是挪窗
+      await api.createPetWindow?.();
       try {
         const d = await (await fetch("/clients")).json();
         const desk = (d.clients || []).find((c) => c.platform !== "phone");
         if (desk && !desk.present) await send("goto", desk.id);
       } catch {}
-      toast("已归位,雪莉回到桌面");
+      toast("雪莉回到桌面");
       setTimeout(refreshHero, 2500);
     };
     $("hidePetBtn").onclick = () => { api.closePetWindow?.(); toast("已隐藏,托盘可再显示"); };
