@@ -210,10 +210,26 @@
     // 手机才有 UI(loading/语音/场控);桌面透明浮窗保持原样。尽早打标,避免闪。
     if (DEVICE === "phone") document.body.classList.add("phone");
     const DEVICE_NAME = { mac: "电脑", phone: "手机", windows: "Windows" };
+    // 进场音效(Pixabay 免版权 technology-camera-flash):她现身瞬间的"科技闪现"声
+    let entranceBuf = null;
+    async function entranceSfx() {
+      try {
+        audioCtx = audioCtx || new AudioContext();
+        audioCtx.resume();
+        if (!entranceBuf) {
+          const r = await fetch("/sfx/entrance.mp3");
+          entranceBuf = await audioCtx.decodeAudioData(await r.arrayBuffer());
+        }
+        const s = audioCtx.createBufferSource(); s.buffer = entranceBuf;
+        const g = audioCtx.createGain(); g.gain.value = 0.55;
+        s.connect(g); g.connect(audioCtx.destination); s.start();
+      } catch {}
+    }
     // 她飞入这台设备:显示形象 + 入场特效 + 打招呼(桌面走真窗口飞行,手机走画布内飞入)
     async function arrive() {
       if (present) return;
       present = true;
+      entranceSfx();                                    // 现身"闪现"声
       const m = window.__model;
       if (m) { m.visible = true; m.alpha = 1; }        // 复位(离开时淡到 0 过)
       const ld = document.getElementById("loading"); if (ld) ld.classList.add("hidden");
@@ -2253,6 +2269,31 @@
       try { fxNodes.output.disconnect(); } catch {}
       if (cfg.fx === "jarvis") { voiceBus.connect(fxNodes.input); fxNodes.output.connect(audioCtx.destination); }
       else voiceBus.connect(audioCtx.destination);
+    }
+    // 贾维斯待命提示音(复刻白龙马 playJarvisAlert 的合成思路):双振荡器上行滑音,
+    // 740→880 正弦 + 错峰 1110→1320 三角波,0.6s 指数包络——"叮-叮↑"科幻感,零素材。
+    function jarvisChime(vol = 0.22) {
+      try {
+        audioCtx = audioCtx || new AudioContext();
+        const now = audioCtx.currentTime;
+        const master = audioCtx.createGain();
+        master.gain.setValueAtTime(0.0001, now);
+        master.gain.exponentialRampToValueAtTime(vol, now + 0.02);
+        master.gain.exponentialRampToValueAtTime(vol * 0.6, now + 0.28);
+        master.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+        master.connect(audioCtx.destination);
+        const a = audioCtx.createOscillator();
+        a.type = "sine";
+        a.frequency.setValueAtTime(740, now);
+        a.frequency.exponentialRampToValueAtTime(880, now + 0.18);
+        a.connect(master); a.start(now); a.stop(now + 0.32);
+        const b = audioCtx.createOscillator();
+        b.type = "triangle";
+        b.frequency.setValueAtTime(1110, now + 0.12);
+        b.frequency.exponentialRampToValueAtTime(1320, now + 0.34);
+        b.connect(master); b.start(now + 0.12); b.stop(now + 0.5);
+        setTimeout(() => { try { master.disconnect(); } catch {} }, 700);
+      } catch {}
     }
 
     // 流式播放：豆包 PCM 边收边排队播（首字快，无需等整句合成）。
