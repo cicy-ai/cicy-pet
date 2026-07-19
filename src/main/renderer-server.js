@@ -731,6 +731,10 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         }
       }
       // 静态文件
+      if (/model3\.json$/.test(u.pathname)) {   // 谁在拉哪个模型 → 黑匣子(排查换装是否真的执行)
+        dbgLog.push(new Date().toISOString().slice(11, 19) + ' [static] ' + u.pathname);
+        if (dbgLog.length > 300) dbgLog.shift();
+      }
       const file = resolveFile(u.pathname);
       if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
         res.statusCode = 404; return res.end('not found');
