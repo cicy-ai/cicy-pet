@@ -1533,6 +1533,7 @@
       window.__voiceBtnReset = reset;
       // pttHolding 必须置真——否则 app.ticker 看门狗(rec.byHold && !pttHolding)会下一帧就把录音掐掉。
       const start = (e) => { e.preventDefault(); unlock();
+        jarvisChime(0.16);   // "叮↑"待命音(复刻白龙马):一按就知道她在听
         y0 = e.touches ? e.touches[0].clientY : e.clientY;
         canceling = false; pttHolding = true;
         btn.classList.add("rec"); hint.textContent = "松手发送 · 上滑取消";
