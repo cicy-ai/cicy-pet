@@ -19,13 +19,10 @@ const { registerScreenCapture } = require('./src/main/screen-capture');
 const { registerUtilityIPC } = require('./src/main/utility-ipc');
 const { registerCharacterHandlers } = require('./src/main/character-manager');
 const { registerEmotionIPC } = require('./src/main/emotion-ipc');
-const { registerTTSIPC } = require('./src/main/tts-ipc');
 const { registerEnhanceIPC } = require('./src/main/enhance-ipc');
 const { registerDefaultAudioIPC } = require('./src/main/default-audio-ipc');
 const { registerModelImport } = require('./src/main/model-import');
 const { createPathUtils } = require('./src/utils/path-utils');
-const { TTSService } = require('./src/core/tts-service');
-const { TranslationService } = require('./src/core/translation-service');
 const { createServer } = require('./src/main/renderer-server');
 const { ensureModels } = require('./src/main/model-fetcher');
 
@@ -61,10 +58,6 @@ registerCharacterHandlers(ctx, ipcMain, {
 });
 
 registerEmotionIPC(ctx, ipcMain);
-
-registerTTSIPC(ctx, ipcMain, {
-    configManager, fs, path, app, mt
-});
 
 registerEnhanceIPC(ctx, ipcMain, { app, fs, https, http });
 
@@ -150,8 +143,6 @@ app.whenReady().then(async () => {
         console.error('[server] failed to start:', e.message);
     }
 
-    ctx.ttsService = new TTSService();
-    ctx.translationService = new TranslationService();
     // settings 窗口**不再开机自建**:它加载的旧 DesktopPetSystem 在后台每秒轮询
     // active-win(辅助功能)+ desktopCapturer(屏幕录制),权限没给就无限弹系统授权框。
     // 大脑已是 Sherlly,这套旧观察链路纯空转——需要设置时从托盘点开(按需创建)。
@@ -252,29 +243,6 @@ app.whenReady().then(async () => {
         try { require('electron').systemPreferences.askForMediaAccess('microphone').catch(() => {}); } catch {}
     }
 
-    // Initialize TTS after windows are created (non-blocking)
-    setImmediate(async () => {
-        const voicevoxDir = ctx.pathUtils.getVoicevoxPath();
-        if (voicevoxDir && fs.existsSync(voicevoxDir)) {
-            const config = await configManager.loadConfigFile();
-            const vvmFiles = config.tts?.vvmFiles || ['0.vvm', '8.vvm'];
-            const gpuMode = config.tts?.gpuMode || false;
-            const ok = ctx.ttsService.init(voicevoxDir, vvmFiles, { gpuMode });
-            if (ok) {
-                if (config.tts) ctx.ttsService.setConfig(config.tts);
-                if (config.apiKey) {
-                    const tl = config.translation || {};
-                    ctx.translationService.configure({
-                        apiKey: tl.apiKey || config.apiKey,
-                        baseURL: tl.baseURL || config.baseURL || 'https://openrouter.ai/api/v1',
-                        modelName: tl.modelName || config.modelName || 'x-ai/grok-4.1-fast'
-                    });
-                }
-            }
-        } else {
-            console.log('[TTS] voicevox_core not found, TTS disabled');
-        }
-    });
 });
 
 app.on('window-all-closed', () => {

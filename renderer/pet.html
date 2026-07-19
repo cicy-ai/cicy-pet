@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <title>Sherlly Pet</title>
 
+  <script src="libs/voicefx.js"></script>
   <script src="libs/live2dcubismcore.min.js"></script>
   <script src="libs/live2d.min.js"></script>
   <script src="libs/pixi.min.js"></script>
@@ -2234,53 +2235,7 @@
       return voiceBus;
     }
     function buildJarvis() {
-      const c = audioCtx;
-      const inHP = c.createBiquadFilter(); inHP.type = "highpass"; inHP.frequency.value = 110;
-      const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 7200;
-      const pres = c.createBiquadFilter(); pres.type = "peaking"; pres.frequency.value = 3000; pres.gain.value = 6; pres.Q.value = 1.2;
-      inHP.connect(lp); lp.connect(pres);
-      const sum = c.createGain();
-      // 干声直达
-      const dry = c.createGain(); dry.gain.value = 0.8; pres.connect(dry); dry.connect(sum);
-      // 太空舱混响:代码合成的噪声脉冲响应,短尾巴不糊
-      const conv = c.createConvolver();
-      { const rate = c.sampleRate, len = Math.floor(rate * 0.5);
-        const ir = c.createBuffer(2, len, rate);
-        for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch);
-          for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
-        conv.buffer = ir; }
-      const wet = c.createGain(); wet.gain.value = 0.5; pres.connect(conv); conv.connect(wet); wet.connect(sum);
-      // 合唱/失谐:LFO 调制短延时,AI 的"加倍厚度"
-      const chDly = c.createDelay(0.1); chDly.delayTime.value = 0.022;
-      const chLfo = c.createOscillator(); chLfo.frequency.value = 0.35;
-      const chDepth = c.createGain(); chDepth.gain.value = 0.003;
-      chLfo.connect(chDepth); chDepth.connect(chDly.delayTime); chLfo.start();
-      const chG = c.createGain(); chG.gain.value = 0.5;
-      pres.connect(chDly); chDly.connect(chG); chG.connect(sum);
-      // 金属梳状/Flanger:短延时+反馈=金属共振,LFO 扫动=科幻扫频
-      const mDly = c.createDelay(0.05); mDly.delayTime.value = 0.006;
-      const mFb = c.createGain(); mFb.gain.value = 0.6;
-      mDly.connect(mFb); mFb.connect(mDly);
-      const flLfo = c.createOscillator(); flLfo.frequency.value = 0.2;
-      const flDepth = c.createGain(); flDepth.gain.value = 0.0025;
-      flLfo.connect(flDepth); flDepth.connect(mDly.delayTime); flLfo.start();
-      const mG = c.createGain(); mG.gain.value = 0.45;
-      pres.connect(mDly); mDly.connect(mG); mG.connect(sum);
-      // 环形调制:信号×150Hz 振荡 = 机器人金属签名音
-      const ring = c.createGain(); ring.gain.value = 0;
-      const ringOsc = c.createOscillator(); ringOsc.frequency.value = 150; ringOsc.connect(ring.gain); ringOsc.start();
-      const ringG = c.createGain(); ringG.gain.value = 0.4;
-      pres.connect(ring); ring.connect(ringG); ringG.connect(sum);
-      // 总线:压缩 + tanh 软削波,支路叠加不炸
-      const comp = c.createDynamicsCompressor();
-      comp.threshold.value = -12; comp.ratio.value = 12; comp.attack.value = 0.003; comp.release.value = 0.25;
-      const clip = c.createWaveShaper();
-      { const n = 1024, curve = new Float32Array(n);
-        for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; curve[i] = Math.tanh(1.5 * x); }
-        clip.curve = curve; }
-      const out = c.createGain(); out.gain.value = 0.85;
-      sum.connect(comp); comp.connect(clip); clip.connect(out);
-      fxNodes = { input: inHP, output: out };
+      fxNodes = window.VoiceFX.build(audioCtx);   // 唯一实现在 libs/voicefx.js(和试听共用)
     }
     function applyFxMode() {
       if (!voiceBus) return;

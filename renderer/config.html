@@ -158,6 +158,7 @@
   </div>
 </div>
 <div id="toast"></div>
+<script src="libs/voicefx.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   const toast = (t) => { const el = $("toast"); el.textContent = t; el.style.opacity = 1;
@@ -221,7 +222,14 @@
           `&engine=${encodeURIComponent(engine)}&voice=${encodeURIComponent(id)}&rate=${encodeURIComponent(cur.rate || "")}`;
         const buf = await pvCtx.decodeAudioData(await (await fetch(url)).arrayBuffer());
         pvSrc = pvCtx.createBufferSource(); pvSrc.buffer = buf;
-        pvSrc.connect(pvCtx.destination); pvSrc.start();
+        // 特效跟随当前设置:选了贾维斯,试听就是贾维斯腔(同一条效果链,libs/voicefx.js)
+        if ((cur.fx || "off") === "jarvis") {
+          if (!window.__pvFx) { window.__pvFx = VoiceFX.build(pvCtx); window.__pvFx.output.connect(pvCtx.destination); }
+          pvSrc.connect(window.__pvFx.input);
+        } else {
+          pvSrc.connect(pvCtx.destination);
+        }
+        pvSrc.start();
       } catch { toast("这个音色试听失败(引擎可能不可用)"); }
       btn.disabled = false; btn.textContent = "▶ 试听";
     }

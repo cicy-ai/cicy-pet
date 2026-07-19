@@ -10,9 +10,10 @@
  *   GET /voices           → [{engine, id, name}]
  *   GET /tts?text=&engine=&voice= → audio/wav
  *
- * TTS 引擎（和 serve.py 一致）：
- *   say  : macOS 自带，离线、无需 python；音色机械。
- *   edge : 微软神经音色，自然；需要 `python3 -m edge_tts`（装了才有，没装自动回落 say）。
+ * TTS 引擎：
+ *   doubao : 豆包大模型音色（默认，纯 HTTP 跨平台）。
+ *   edge   : 微软神经音色（需 python3 -m edge_tts）。
+ *   （原生 say/SAPI/VOICEVOX 已删除,2026-07-19。）
  * 缓存放 userData/.tts-cache（app 包只读，不能往里写）。
  */
 'use strict';
@@ -23,8 +24,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const DEFAULT_ENGINE = 'edge';
-const DEFAULT_VOICE = { say: 'Tingting', edge: 'zh-CN-XiaoyiNeural', doubao: 'zh_female_shuangkuaisisi_uranus_bigtts' };
+const DEFAULT_ENGINE = 'doubao';
+const DEFAULT_VOICE = { edge: 'zh-CN-XiaoyiNeural', doubao: 'zh_female_shuangkuaisisi_uranus_bigtts' };
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -151,23 +152,6 @@ function run(cmd, args, opts = {}) {
   });
 }
 
-async function sayVoices() {
-  // macOS 自带中文音色。坑：短名 `say -v Eddy` 会选到英文版念出空音频，必须用全名。
-  if (process.platform !== 'darwin') return [];
-  try {
-    const out = (await run('say', ['-v', '?'])).toString('utf8');
-    const seen = new Set(), voices = [];
-    for (const line of out.split('\n')) {
-      const m = line.match(/^(.+?)\s+zh_CN\s/);
-      if (!m) continue;
-      const full = m[1].trim();
-      if (seen.has(full)) continue;
-      seen.add(full);
-      voices.push({ engine: 'say', id: full, name: full.split(' (')[0] });
-    }
-    return voices;
-  } catch { return []; }
-}
 
 async function edgeVoices() {
   try {
@@ -181,37 +165,9 @@ async function edgeVoices() {
   } catch { return []; }
 }
 
-// Windows 内置 SAPI（System.Speech）—— Windows 版的「say」：能直接合成中文 wav，
-// 不需要 afconvert。文本/音色/输出路径走环境变量传进 PowerShell，避免引号注入。
-const WIN_LIST_PS1 = `Add-Type -AssemblyName System.Speech
-$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
-$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo } | Where-Object { $_.Culture.Name -like 'zh*' } | ForEach-Object { $_.Name }
-$s.Dispose()`;
-const WIN_SAY_PS1 = `Add-Type -AssemblyName System.Speech
-$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
-try { if ($env:TTS_VOICE) { $s.SelectVoice($env:TTS_VOICE) } } catch {}
-$s.SetOutputToWaveFile($env:TTS_OUT)
-$s.Speak([System.IO.File]::ReadAllText($env:TTS_TXT, [System.Text.Encoding]::UTF8))
-$s.Dispose()`;
 
-async function winVoices() {
-  if (process.platform !== 'win32') return [];
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cicypet-v-'));
-  const ps = path.join(tmp, 'list.ps1');
-  try {
-    fs.writeFileSync(ps, WIN_LIST_PS1);
-    const out = (await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps])).toString('utf8');
-    return out.split('\n').map((l) => l.trim()).filter(Boolean)
-      .map((name) => ({ engine: 'say', id: name, name: name.replace(/^Microsoft\s+/, '').replace(/\s+Desktop$/, '') }));
-  } catch { return []; }
-  finally { fs.rmSync(tmp, { recursive: true, force: true }); }
-}
 
 // 平台内置 TTS：mac 用 say，win 用 SAPI，其余暂无。前端里这一档都叫 engine="say"。
-async function systemVoices() {
-  if (process.platform === 'win32') return winVoices();
-  return sayVoices();
-}
 
 // 从 agent 回复里抽出「该读出来的话」：cicy agent 回复形如
 // "[thinking]\n...\n\n[text]\n<真正答复>"。取 [text] 段，去掉 markdown / emoji / 长链接。
@@ -404,7 +360,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
       const doubao = (await readSecrets()).doubaoKey
         ? DOUBAO_VOICES.map((v) => ({ engine: 'doubao', id: v.id, name: v.name }))
         : [];
-      voicesCache = [...doubao, ...await edgeVoices(), ...await systemVoices()];
+      voicesCache = [...doubao, ...await edgeVoices()];   // 原生 say/SAPI 已删(机械音,用户点名删除)
     }
     return voicesCache;
   }
@@ -436,17 +392,8 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         if (pitch) extra.push(`--pitch=${pitch}`);
         await run('python3', ['-m', 'edge_tts', '--voice', voice, ...extra, '--text', text, '--write-media', mp3], { env: NO_PROXY_ENV });
         await run('afconvert', ['-f', 'WAVE', '-d', 'LEI16@22050', '-c', '1', mp3, wav]);
-      } else if (process.platform === 'win32') {
-        // Windows 内置 SAPI → 直接写 wav（PCM），无需 afconvert
-        const ps = path.join(tmp, 'say.ps1'), txt = path.join(tmp, 'in.txt');
-        fs.writeFileSync(ps, WIN_SAY_PS1);
-        fs.writeFileSync(txt, text, 'utf8');
-        await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps],
-          { env: { ...process.env, TTS_VOICE: voice || '', TTS_OUT: wav, TTS_TXT: txt } });
       } else {
-        const aiff = path.join(tmp, 'o.aiff');
-        await run('say', ['-v', voice, '-o', aiff, text]);
-        await run('afconvert', ['-f', 'WAVE', '-d', 'LEI16@22050', aiff, wav]);
+        throw new Error('unknown engine: ' + engine);
       }
       const data = fs.readFileSync(wav);
       fs.writeFileSync(out + '.part', data);   // 原子落盘
@@ -788,7 +735,7 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         const engine = u.searchParams.get('engine') || DEFAULT_ENGINE;
         const voice = u.searchParams.get('voice') || DEFAULT_VOICE[engine] || '';
         if (!text) { res.statusCode = 400; return res.end('text required'); }
-        if (!['say', 'edge', 'doubao'].includes(engine)) { res.statusCode = 400; return res.end('bad engine'); }
+        if (!['edge', 'doubao'].includes(engine)) { res.statusCode = 400; return res.end('bad engine'); }
         // rate/pitch 只对 edge 生效，格式 ±N% / ±NHz（防注入：只放行这两种形状）
         const rate = /^[+-]\d{1,3}%$/.test(u.searchParams.get('rate') || '') ? u.searchParams.get('rate') : '';
         const pitch = /^[+-]\d{1,3}Hz$/.test(u.searchParams.get('pitch') || '') ? u.searchParams.get('pitch') : '';
