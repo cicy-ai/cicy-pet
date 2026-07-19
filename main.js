@@ -137,9 +137,12 @@ app.whenReady().then(async () => {
                     const th = sources[0] && sources[0].thumbnail;
                     const b64 = th && !th.isEmpty() ? th.toJPEG(35).toString('base64') : null;
                     for (const s of sources) { try { s.thumbnail = null; s.appIcon = null; } catch {} }
+                    if (b64) global.__capFailAt = 0;          // 成功即解除冷却
+                    else global.__capFailAt = Date.now();     // 拿到空图(权限被撤?)也进冷却
                     return b64;
                 } catch (e) {
                     console.error('[capture]', e);
+                    global.__capFailAt = Date.now();          // 失败进 5 分钟冷却,不反复骚扰系统
                     return null;
                 }
             } });
