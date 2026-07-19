@@ -264,6 +264,7 @@
       voice: params.get("voice") || saved.voice || "zh_female_shuangkuaisisi_uranus_bigtts",
       rate: params.get("rate") || saved.rate || "+18%",   // 爽快思思 +8% 显笨,+18% 才伶牙俐齿
       pitch: params.get("pitch") || saved.pitch || "+20Hz",
+      fx: params.get("fx") || saved.fx || "off",          // 声音特效:off | jarvis
     };
     if (/_uranus_bigtts$/.test(cfg.voice) && cfg.engine !== "doubao") cfg.engine = "doubao";
     if (cfg.engine === "edge" && !/^zh-CN-/.test(cfg.voice)) cfg.engine = "doubao";
@@ -1601,6 +1602,7 @@
         else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge";
       }
       if (pc.rate && pc.rate !== cfg.rate) cfg.rate = pc.rate;
+      if (pc.fx && pc.fx !== cfg.fx) { cfg.fx = pc.fx; try { applyFxMode(); } catch {} }
       if (pc.model && pc.model !== cfg.model) {
         dlog(`cfg-sync model ${cfg.model} -> ${pc.model}`);
         cfg.model = pc.model;                     // 先记下再加载:加载慢时下一轮轮询不会重复触发
@@ -1850,6 +1852,7 @@
         if (pc && pc.model) cfg.model = pc.model;
         if (pc && pc.voice) { cfg.voice = pc.voice; if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; }
         if (pc && pc.rate) cfg.rate = pc.rate;
+        if (pc && pc.fx) cfg.fx = pc.fx;
         if (pr && pr.client) present = (pr.client === CLIENT_ID);   // 不在这个 client 就先藏着,等被 goto 召唤
       } catch {}
       for (let attempt = 1; attempt <= 4; attempt++) {
@@ -2180,6 +2183,78 @@
     // 角色名 Sherlly,中文雪莉——TTS 碰到英文拼写会念成字母,统一替换成「雪莉」。
     const PRONOUNCE = [[/Sherlly/gi, "雪莉"], [/CiCy/gi, "雪莉"]];
 
+    // ---------- 声音特效(贾维斯科幻链) ----------
+    // 她的所有语音统一汇入 voiceBus,按 cfg.fx 选直通或效果链出扬声器。
+    // 效果链全部 WebAudio 实时合成(标准 DSP 手法,零素材):
+    //   带通 EQ(通信底色+金属脆感) → 并联[干声|太空舱混响|合唱失谐|金属梳状Flanger|环形调制]
+    //   → 压缩 + tanh 软削波(防叠加爆音) → 扬声器
+    let voiceBus = null, fxNodes = null;
+    function voiceOut() {
+      audioCtx = audioCtx || new AudioContext();
+      if (!voiceBus) {
+        voiceBus = audioCtx.createGain();
+        buildJarvis();
+        applyFxMode();
+      }
+      return voiceBus;
+    }
+    function buildJarvis() {
+      const c = audioCtx;
+      const inHP = c.createBiquadFilter(); inHP.type = "highpass"; inHP.frequency.value = 110;
+      const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 7200;
+      const pres = c.createBiquadFilter(); pres.type = "peaking"; pres.frequency.value = 3000; pres.gain.value = 6; pres.Q.value = 1.2;
+      inHP.connect(lp); lp.connect(pres);
+      const sum = c.createGain();
+      // 干声直达
+      const dry = c.createGain(); dry.gain.value = 0.8; pres.connect(dry); dry.connect(sum);
+      // 太空舱混响:代码合成的噪声脉冲响应,短尾巴不糊
+      const conv = c.createConvolver();
+      { const rate = c.sampleRate, len = Math.floor(rate * 0.5);
+        const ir = c.createBuffer(2, len, rate);
+        for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch);
+          for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+        conv.buffer = ir; }
+      const wet = c.createGain(); wet.gain.value = 0.5; pres.connect(conv); conv.connect(wet); wet.connect(sum);
+      // 合唱/失谐:LFO 调制短延时,AI 的"加倍厚度"
+      const chDly = c.createDelay(0.1); chDly.delayTime.value = 0.022;
+      const chLfo = c.createOscillator(); chLfo.frequency.value = 0.35;
+      const chDepth = c.createGain(); chDepth.gain.value = 0.003;
+      chLfo.connect(chDepth); chDepth.connect(chDly.delayTime); chLfo.start();
+      const chG = c.createGain(); chG.gain.value = 0.5;
+      pres.connect(chDly); chDly.connect(chG); chG.connect(sum);
+      // 金属梳状/Flanger:短延时+反馈=金属共振,LFO 扫动=科幻扫频
+      const mDly = c.createDelay(0.05); mDly.delayTime.value = 0.006;
+      const mFb = c.createGain(); mFb.gain.value = 0.6;
+      mDly.connect(mFb); mFb.connect(mDly);
+      const flLfo = c.createOscillator(); flLfo.frequency.value = 0.2;
+      const flDepth = c.createGain(); flDepth.gain.value = 0.0025;
+      flLfo.connect(flDepth); flDepth.connect(mDly.delayTime); flLfo.start();
+      const mG = c.createGain(); mG.gain.value = 0.45;
+      pres.connect(mDly); mDly.connect(mG); mG.connect(sum);
+      // 环形调制:信号×150Hz 振荡 = 机器人金属签名音
+      const ring = c.createGain(); ring.gain.value = 0;
+      const ringOsc = c.createOscillator(); ringOsc.frequency.value = 150; ringOsc.connect(ring.gain); ringOsc.start();
+      const ringG = c.createGain(); ringG.gain.value = 0.4;
+      pres.connect(ring); ring.connect(ringG); ringG.connect(sum);
+      // 总线:压缩 + tanh 软削波,支路叠加不炸
+      const comp = c.createDynamicsCompressor();
+      comp.threshold.value = -12; comp.ratio.value = 12; comp.attack.value = 0.003; comp.release.value = 0.25;
+      const clip = c.createWaveShaper();
+      { const n = 1024, curve = new Float32Array(n);
+        for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; curve[i] = Math.tanh(1.5 * x); }
+        clip.curve = curve; }
+      const out = c.createGain(); out.gain.value = 0.85;
+      sum.connect(comp); comp.connect(clip); clip.connect(out);
+      fxNodes = { input: inHP, output: out };
+    }
+    function applyFxMode() {
+      if (!voiceBus) return;
+      try { voiceBus.disconnect(); } catch {}
+      try { fxNodes.output.disconnect(); } catch {}
+      if (cfg.fx === "jarvis") { voiceBus.connect(fxNodes.input); fxNodes.output.connect(audioCtx.destination); }
+      else voiceBus.connect(audioCtx.destination);
+    }
+
     // 流式播放：豆包 PCM 边收边排队播（首字快，无需等整句合成）。
     // 用一条运行光标 gaplessly 把小块接起来；口型由共享 analyser 实时驱动。
     // streamStop 已提到文件顶部的早期声明块（loadModel 会先用到）
@@ -2194,7 +2269,7 @@
       const gain = audioCtx.createGain();
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 512;
-      gain.connect(analyser); analyser.connect(audioCtx.destination);
+      gain.connect(analyser); analyser.connect(voiceOut());   // 汇入声音总线(cfg.fx 决定特效)
       if (fx === "whisper") {
         // 太空回声：一条 0.26s 反馈延迟当湿声，音量整体收小——像贴着天窗玻璃说的悄悄话
         gain.gain.value = 0.8;
@@ -2202,7 +2277,7 @@
         const fb = audioCtx.createGain(); fb.gain.value = 0.42;
         const wet = audioCtx.createGain(); wet.gain.value = 0.38;
         analyser.connect(dly); dly.connect(fb); fb.connect(dly);
-        dly.connect(wet); wet.connect(audioCtx.destination);
+        dly.connect(wet); wet.connect(voiceOut());
       }
       streamStop = () => {
         stopped = true; ctrl.abort();
@@ -2303,7 +2378,7 @@
       const env = envelope(buffer);
       srcNode = audioCtx.createBufferSource();
       srcNode.buffer = buffer;
-      srcNode.connect(audioCtx.destination);
+      srcNode.connect(voiceOut());
       srcNode.onended = stopSpeaking;
 
       const t0 = audioCtx.currentTime;
@@ -2434,6 +2509,7 @@
             case "model":     if (arg && arg !== cfg.model) { dlog(`sse model -> ${arg}`); cfg.model = String(arg); persistCfg(); try { await loadModel(cfg.model); dlog("sse loadModel ok"); } catch (e) { dlog(`sse loadModel FAIL ${e.message || e}`); throw e; } } break;
             case "voice":     if (arg) { cfg.voice = String(arg); if (/_uranus_bigtts$/.test(cfg.voice)) cfg.engine = "doubao"; else if (/^zh-CN-/.test(cfg.voice)) cfg.engine = "edge"; persistCfg(); } break;
             case "rate":      if (arg != null) { cfg.rate = String(arg); persistCfg(); } break;
+            case "fx":        if (arg != null) { cfg.fx = String(arg); persistCfg(); try { voiceOut(); applyFxMode(); } catch {} speak(cfg.fx === "jarvis" ? "系统上线,随时待命,守门人。" : "变回原来的我啦～"); } break;
             case "testvoice": speak(arg ? String(arg) : "你好呀守门人，我是雪莉，这是我现在的声音～"); break;
             case "reload":    location.reload(); break;   // 远程让所有在线页面换血(发版后一键刷)
           }
@@ -2445,13 +2521,13 @@
     // 配置持久化:写回 localStorage(pet.html 下次启动读它);桌面宿主再落盘 config.json;
     // 并上报给 server,让手机配置页能回显"当前用的形象/音色"。
     function persistCfg() {
-      try { localStorage.setItem("pet_config", JSON.stringify({ model: cfg.model, engine: cfg.engine, voice: cfg.voice, rate: cfg.rate, pitch: cfg.pitch })); } catch {}
+      try { localStorage.setItem("pet_config", JSON.stringify({ model: cfg.model, engine: cfg.engine, voice: cfg.voice, rate: cfg.rate, pitch: cfg.pitch, fx: cfg.fx })); } catch {}
       try { api?.saveConfig && api.saveConfig({ modelName: cfg.model, engine: cfg.engine, voice: cfg.voice, rate: cfg.rate, pitch: cfg.pitch }); } catch {}
       reportCfg();
     }
     function reportCfg() {
       try { fetch("/petcfg", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: cfg.model, voice: cfg.voice, rate: cfg.rate, engine: cfg.engine }) }); } catch {}
+        body: JSON.stringify({ model: cfg.model, voice: cfg.voice, rate: cfg.rate, engine: cfg.engine, fx: cfg.fx }) }); } catch {}
     }
     // 不在启动时上报——服务器的 petCfg 已是持久化的唯一真相,启动只该「读」它,不该用本机
     // (可能过时的)配置去覆盖。只有用户在本机真的改了配置(persistCfg)才上报。

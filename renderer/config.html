@@ -54,6 +54,12 @@
     <b id="rateVal">+8%</b>
   </div>
 
+  <div class="sec">声 音 特 效</div>
+  <div class="grid" id="fxRow">
+    <div class="card" data-fx="off">原声<span class="tag">她本来的声音</span></div>
+    <div class="card" data-fx="jarvis">贾维斯<span class="tag">科幻 AI 电波感</span></div>
+  </div>
+
   <div class="sec">试 听</div>
   <div class="test">
     <input id="testText" placeholder="打一句让她念,留空用默认" autocomplete="off">
@@ -98,6 +104,16 @@
     // 语速回显
     if (cur.rate) { const n = parseInt(cur.rate, 10); if (!isNaN(n)) { document.getElementById("rate").value = n;
       document.getElementById("rateVal").textContent = (n >= 0 ? "+" : "") + n + "%"; } }
+    // 声音特效回显 + 切换
+    document.querySelectorAll("#fxRow .card").forEach((c) => {
+      if ((cur.fx || "off") === c.dataset.fx) c.classList.add("sel");
+      c.onclick = async () => {
+        document.querySelectorAll("#fxRow .card").forEach((x) => x.classList.remove("sel"));
+        c.classList.add("sel");
+        await send("fx", c.dataset.fx);
+        toast(c.dataset.fx === "jarvis" ? "贾维斯已上线,听她说话试试" : "已切回原声");
+      };
+    });
   })();
   const rate = document.getElementById("rate");
   rate.oninput = () => { const n = +rate.value; document.getElementById("rateVal").textContent = (n >= 0 ? "+" : "") + n + "%"; };
