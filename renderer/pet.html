@@ -47,8 +47,11 @@
     body.phone #bubble { top: auto; bottom: calc(118px + env(safe-area-inset-bottom));
       font-size: 15px; line-height: 1.55; padding: 12px 16px; border-radius: 16px;
       background: rgba(22, 32, 58, .92); color: #eaf4ff; max-width: 86%;
-      max-height: 30vh; overflow-y: auto; pointer-events: auto;
+      max-height: 30vh; overflow-y: auto;
       overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    /* 只有气泡真正显示时才吃触摸(可滚动);隐身时必须放行——不然这堵透明墙挡在
+       她身前,点她做动作全被吞掉("点形象没反应"就是它干的) */
+    body.phone #bubble.on { pointer-events: auto; }
 
     /* 加载态——只在手机(body.phone)出现;桌面透明浮窗保持原样,绝不加这层。 */
     #loading { display: none; position: fixed; inset: 0; flex-direction: column;
@@ -1748,6 +1751,7 @@
 
       // 点击身体触发动作、点头切表情
       model.on("hit", (areas) => {
+        dlog("hit " + areas.join(","));
         const has = (n) => areas.some((a) => a.toLowerCase().includes(n));
         if (has("head")) model.expression();
         else randomMotion();
