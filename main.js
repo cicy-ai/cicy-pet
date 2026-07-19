@@ -113,28 +113,25 @@ app.whenReady().then(async () => {
                     camera: 'Privacy_Camera', accessibility: 'Privacy_Accessibility',
                 };
                 if (PANES[open]) shell.openExternal('x-apple.systempreferences:com.apple.preference.security?' + PANES[open]);
-                let ax = false;
-                try { ax = systemPreferences.isTrustedAccessibilityClient(false); } catch {}
+                // 绝不查 accessibility:isTrustedAccessibilityClient 在未签名 App 上
+                // 每查一次系统就骚扰一次(用户 2026-07-19:"它一直弹我关不掉")。
+                // 那功能本来就停用了,状态写死 unused。
                 return {
                     platform: 'darwin',
                     screen: systemPreferences.getMediaAccessStatus('screen'),
                     microphone: systemPreferences.getMediaAccessStatus('microphone'),
                     camera: systemPreferences.getMediaAccessStatus('camera'),
-                    accessibility: ax ? 'granted' : 'denied',
+                    accessibility: 'unused',
                 };
             },
             // /peek 的眼睛:主进程按需截一张主屏(她在手机上也能看 mac 屏幕)。
             // 一次性截图,不轮询;需要系统「屏幕录制」权限(没给时静默返回空)。
             capture: async () => {
+                // 权限闸 v2:不能按"自己"查状态——桌宠是子进程,TCC 权限跟着责任爹
+                // (CiCy Desktop)走,getMediaAccessStatus 查自己永远 denied。改成真试:
+                // 成功就成功;失败则 5 分钟内不再试(未授权时最多 5 分钟弹一次,不轰炸)。
+                if (global.__capFailAt && Date.now() - global.__capFailAt < 5 * 60 * 1000) return null;
                 try {
-                    // 权限闸:屏幕录制没授权就静默返回——不去撞 getSources,
-                    // 否则每次尝试都弹一次系统授权框(和 active-win 同款骚扰)。
-                    const { systemPreferences } = require('electron');
-                    if (process.platform === 'darwin'
-                        && systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
-                        console.error('[capture] screen recording not granted — skip');
-                        return null;
-                    }
                     const sources = await desktopCapturer.getSources({
                         types: ['screen'], thumbnailSize: { width: 1024, height: 1024 } });
                     const th = sources[0] && sources[0].thumbnail;

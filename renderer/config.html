@@ -117,7 +117,7 @@
       let right;
       if (ok) right = `<span style="color:#6fdc8c;font-size:13px;white-space:nowrap">● 已授权</span>`;
       else if (need) right = `<button data-open="${key}" style="background:#3a2530;border:1px solid #6a3545;color:#ffb3c0;border-radius:10px;padding:8px 12px;font-size:13px;white-space:nowrap">未授权 · 去开启</button>`;
-      else right = `<span style="color:#5a7099;font-size:13px;white-space:nowrap">○ ${val === "not-determined" ? "从未询问" : "未授权"}(不需要)</span>`;
+      else right = `<span style="color:#5a7099;font-size:13px;white-space:nowrap">○ ${val === "not-determined" ? "从未询问" : val === "unused" ? "已停用" : "未授权"}(不需要)</span>`;
       return `<div style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px">` +
         `<span style="font-size:18px">${icon}</span>` +
         `<span style="flex:1;min-width:0"><div>${name}</div><div style="color:#5a7099;font-size:12px;margin-top:2px">${use}</div></span>` +
@@ -126,15 +126,14 @@
     box.innerHTML =
       row("👀", "屏幕录制", "她的眼睛:回答「我在干嘛/桌面上有什么」要靠它截屏", p.screen, "screen", true) +
       row("🎙️", "麦克风", "桌面端收音(手机说话用手机自己的麦,不占这个)", p.microphone, "microphone", true) +
-      row("🖐️", "辅助功能", "旧版「观察主人窗口」功能用的,现已停用——保持关闭即可", p.accessibility, "accessibility", false) +
+      row("🖐️", "辅助功能", "旧版「观察主人窗口」功能用的,现已停用,不查不碰", "unused", "accessibility", false) +
       row("📷", "摄像头", "完全没用到", p.camera, "camera", false);
     box.querySelectorAll("button[data-open]").forEach((b) => b.onclick = () => {
       renderPerms(b.dataset.open);
       toast("已在电脑上打开系统设置,去 Mac 勾上 CiCy Desktop/Electron");
     });
   }
-  renderPerms();
-  setInterval(() => renderPerms(), 10000);
+  renderPerms();   // 只在打开页面时查一次;不轮询(轮询查权限=每 10s 骚扰系统一次)
 </script>
 </body>
 </html>

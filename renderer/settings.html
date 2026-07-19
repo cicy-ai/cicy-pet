@@ -1038,8 +1038,7 @@
       bar.textContent = "⚠️ 未授权:" + miss.map(([, n]) => n).join("、") + " —— 点这里去系统设置开启";
       bar.onclick = () => refreshPerms(miss[0][0]);
     }
-    refreshPerms();
-    setInterval(() => refreshPerms(), 10000);
+    refreshPerms();   // 只查一次,不轮询(轮询查权限会反复骚扰系统)
     loadVoices();
     initBrain();
 
