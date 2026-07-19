@@ -2009,6 +2009,12 @@
       const now = performance.now();
       if (now - lastTapAct < 500) return;
       lastTapAct = now;
+      // 唱歌时戳她 = 闭麦(最顺手的停唱方式),外加一句小委屈
+      if (singing) {
+        stopSing();
+        setTimeout(() => speak("好吧好吧,不唱了嘛～"), 250);
+        return;
+      }
       let exprN = 0;
       try { exprN = (model.internalModel.settings.expressions || []).length; } catch {}
       // 点头=换表情(模型真有表情才换,没有就播动作);点身体=她自带的 TapBody 动作
