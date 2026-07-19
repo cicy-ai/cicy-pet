@@ -31,6 +31,8 @@ function createTrayManager(ctx, deps) {
         const template = [
             { label: mt('tray.showSettings'), click: () => {
                 if (ctx.settingsWindow && !ctx.settingsWindow.isDestroyed()) {
+                    // 常驻窗口藏着的是旧页面——每次打开都 reload,一套 UI 改了立刻可见
+                    ctx.settingsWindow.webContents.reload();
                     ctx.settingsWindow.show();
                     ctx.settingsWindow.focus();
                 } else {
