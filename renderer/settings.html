@@ -234,7 +234,9 @@
         <div class="pill stopped" id="statPill"><i></i><span id="statTxt">未配置</span></div>
       </div>
 
-      <div class="cta-wrap">
+      <!-- 「启动大脑」已下线(2026-07-19):大脑=Sherlly,常驻在线,无需启动。
+           display:none 而非删除——一票 JS 还攥着 #cta/#ctaTxt 的引用,硬删会崩整页。 -->
+      <div class="cta-wrap" style="display:none">
         <button class="cta locked" id="cta">
           <svg id="ctaIcon" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>
           <span id="ctaTxt">启动大脑</span>
@@ -253,8 +255,8 @@
     <div class="group-label">让它活起来</div>
     <div class="group">
 
-      <!-- AI 大脑 -->
-      <div class="acc" data-acc="brain">
+      <!-- AI 大脑(旧内置大脑配置,已由 Sherlly 取代,隐藏不删——JS 引用仍在) -->
+      <div class="acc" data-acc="brain" style="display:none">
         <div class="ic brain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 1 5 3 3 0 0 0 6 1V4a1 1 0 0 0-2-1zM15 3a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-1 5 3 3 0 0 1-6 1"/></svg></div>
         <div class="lbl"><b>AI 大脑</b><span>截屏感知 · 主动陪聊</span></div>
         <div class="val" data-val="brain">未配置</div>
