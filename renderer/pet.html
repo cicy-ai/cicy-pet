@@ -1385,50 +1385,17 @@
 
     // 雪莉的大脑 = Sherlly（cicy-code 里能真操作电脑的 agent）。
     // 语音识别出的话经 /agent 桥转给 Sherlly，取它的答复读出来。
-    // 看屏幕意图：问到"屏幕/在干嘛/在看什么/这是什么/帮我看看"就先截屏用 GLM-4V 看一眼，
-    // 把它看到的东西作为线索一起交给 Sherlly，让她带着「视觉」自然作答。
-    const SCREEN_INTENT = /屏幕|在干(嘛|什么|啥)|在看(什么|啥|的啥)|这是(什么|啥)|帮我看|看看我|我在做什么|桌面上|画面上|看得到|你看(到|见)/;
-    async function peekScreen(question) {
-      const prompt = "用一两句话描述这张电脑屏幕截图里用户正在做什么、屏幕上有什么。"
-        + (question ? "重点关注和这个问题相关的：" + question : "");
-      // 没有本机截屏能力(她在手机/浏览器上)→ 借服务器的眼睛:主进程截 mac 屏 + 看图。
-      // 她的眼睛永远是 mac 屏幕,人在哪台都能"瞄一眼电脑"。
-      if (!api || !api.getScreenCapture) {
-        try {
-          const r = await fetch("/peek", { method: "POST",
-            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
-          if (!r.ok) return "";
-          return ((await r.json()).text || "").trim();
-        } catch { return ""; }
-      }
-      try {
-        let b64 = null;
-        for (let i = 0; i < 3 && !b64; i++) {   // 首次截屏偶发返回空，重试
-          b64 = await api.getScreenCapture();
-          if (!b64) await new Promise((r) => setTimeout(r, 250));
-        }
-        if (!b64) return "";
-        const r = await fetch("/vision", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: b64, prompt }),
-        });
-        if (!r.ok) return "";
-        return ((await r.json()).text || "").trim();
-      } catch { return ""; }
-    }
+    // 「看屏幕」不再由客户端做关键词判断/注入上下文——那是她自己的能力:
+    // 需要时她自己 curl 服务器的 /peek(主进程截 mac 屏 + GLM-4V 描述)。零提示词。
 
     async function chatReply(userText) {
       try {
-        // 需要"看屏幕"时，先偷看一眼，把所见塞进给 Sherlly 的上下文
-        let toAgent = userText;
-        if (SCREEN_INTENT.test(userText)) {
-          const seen = await peekScreen(userText);
-          if (seen) toAgent = `【屏幕:${seen}】${userText}`;   // 短标记即可:方括号=她瞥见的画面,其余是用户原话
-        }
+        // 零提示词:用户原话直达雪莉。"看屏幕"是她自己的能力(她会按需 curl /peek),
+        // 不在客户端做关键词判断、不注入任何上下文(用户 2026-07-19:"必须加那么多提示词么")。
         const r = await fetch("/agent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: toAgent }),
+          body: JSON.stringify({ text: userText }),
         });
         if (!r.ok) throw new Error(await r.text());
         let reply = ((await r.json()).answer || "").trim();
