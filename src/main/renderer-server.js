@@ -233,7 +233,7 @@ function extractSpoken(raw) {
     .slice(0, 240);                           // 桌宠只读前 240 字，别念长文
 }
 
-function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {}, getConfig = null, capture = null }) {
+function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = () => {}, getConfig = null, capture = null, perms = null }) {
   const rendererDir = path.join(appDir, 'renderer');
   let voicesCache = null;
 
@@ -550,6 +550,13 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
         // 否则每次改版都要人肉刷新,改了也"不生效"。
         res.end(JSON.stringify({ clients, presence: presence.client, platform: presence.platform, cfg: petCfg, v: petHtmlVersion() }));
         return;
+      }
+
+      // 系统授权状态(她的眼睛/耳朵开没开)。?open=screen|microphone 顺手打开系统设置页(桌面本机)。
+      if (u.pathname === '/perms') {
+        const st = perms ? perms(u.searchParams.get('open') || '') : { screen: 'unknown', microphone: 'unknown' };
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify(st));
       }
 
       // 黑匣子:页面把关键步骤/报错回传,排「手机上到底发生了什么」这类隔空谜题。

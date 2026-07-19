@@ -103,6 +103,22 @@ app.whenReady().then(async () => {
             log: (...a) => console.log(...a),
             // doubao TTS 的 key 存在 config.json（gitignore），server 按需读
             getConfig: () => configManager.loadConfigFile().catch(() => ({})),
+            // /perms:实时报系统授权状态(配置页显示"眼睛/耳朵"开没开);
+            // open=1 时顺手把对应的系统设置页打开(只有桌面本机能干这事)
+            perms: (open) => {
+                const { systemPreferences, shell } = require('electron');
+                if (process.platform !== 'darwin') return { platform: process.platform, screen: 'granted', microphone: 'granted' };
+                if (open === 'screen') shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+                if (open === 'microphone') shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+                let ax = false;
+                try { ax = systemPreferences.isTrustedAccessibilityClient(false); } catch {}
+                return {
+                    platform: 'darwin',
+                    screen: systemPreferences.getMediaAccessStatus('screen'),
+                    microphone: systemPreferences.getMediaAccessStatus('microphone'),
+                    accessibility: ax ? 'granted' : 'denied',
+                };
+            },
             // /peek 的眼睛:主进程按需截一张主屏(她在手机上也能看 mac 屏幕)。
             // 一次性截图,不轮询;需要系统「屏幕录制」权限(没给时静默返回空)。
             capture: async () => {

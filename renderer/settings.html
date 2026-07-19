@@ -422,6 +422,10 @@
     </div>
   </div>
 
+  <div id="permBar" style="display:none;margin:10px 0;padding:10px 14px;border-radius:12px;
+       background:#2a1f28;border:1px solid #5a3545;color:#ffb3c0;font-size:13px;cursor:pointer">
+  </div>
+
   <div id="status">就绪</div>
 
   <script>
@@ -1020,6 +1024,22 @@
     });
 
     sharedReady.then(loadModels);   // 先拿到服务器真相再渲染,选中态才不会骗人
+
+    // 系统授权状态条:缺权限才现身(屏幕录制=她的眼睛/麦克风=耳朵),点一下直接跳系统设置
+    async function refreshPerms(open) {
+      let p = null;
+      try { p = await (await fetch("/perms" + (open ? "?open=" + open : ""))).json(); } catch { return; }
+      const bar = $("permBar");
+      const miss = [];
+      if (p.screen !== "granted") miss.push(["screen", "👀 屏幕录制(看屏幕)"]);
+      if (p.microphone !== "granted") miss.push(["microphone", "🎙️ 麦克风"]);
+      if (!miss.length) { bar.style.display = "none"; return; }
+      bar.style.display = "block";
+      bar.textContent = "⚠️ 未授权:" + miss.map(([, n]) => n).join("、") + " —— 点这里去系统设置开启";
+      bar.onclick = () => refreshPerms(miss[0][0]);
+    }
+    refreshPerms();
+    setInterval(() => refreshPerms(), 10000);
     loadVoices();
     initBrain();
 
