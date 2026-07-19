@@ -44,11 +44,17 @@
   .card .lic { display:block; font-size:10px; color:#5a8; margin-top:2px; }
 
   /* 声音 */
-  .vgrid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-  .vrow { background:var(--card2); border:2px solid var(--line); border-radius:12px; padding:12px 10px;
-          font-size:14px; cursor:pointer; }
+  .vgrid { display:flex; flex-direction:column; gap:8px; }
+  .vrow { background:var(--card2); border:2px solid var(--line); border-radius:12px; padding:10px 12px;
+          font-size:14px; display:flex; align-items:center; gap:8px; }
   .vrow.sel { border-color:var(--hot); background:#1a2c52; }
+  .vrow .vinfo { flex:1; min-width:0; }
   .vrow .eng { display:block; font-size:11px; color:var(--dim); margin-top:2px; }
+  .vrow button { border-radius:10px; font-size:13px; padding:9px 12px; cursor:pointer; white-space:nowrap; }
+  .vrow .pv { background:#16203a; border:1px solid var(--line); color:var(--hot); }
+  .vrow .pick { background:#16305e; border:1px solid var(--sel); color:#eaf4ff; min-width:66px; }
+  .vrow.sel .pick { background:linear-gradient(135deg,#2a6fd0,#16305e); border-color:var(--hot); }
+  .vrow button:active { transform:scale(.95); }
   .subhead { font-size:12px; color:var(--dim); letter-spacing:1px; margin:16px 0 8px; }
   .rate { display:flex; align-items:center; gap:12px; }
   .rate input { flex:1; }
@@ -197,14 +203,37 @@
       if (await send("model", c.dataset.url)) toast("换形象中……");
       refreshHero();
     });
-    // 音色
+    // 音色:每行两颗按钮——「▶ 试听」页面就地用该音色播一句(不改配置);「选择」才真换。
     const voices = await (await fetch("/voices")).json();
     $("voices").innerHTML = voices.map((v) =>
-      `<div class="vrow${cur.voice === v.id ? " sel" : ""}" data-id="${v.id}">${v.name}` +
-      `<span class="eng">${v.engine}</span></div>`).join("");
-    document.querySelectorAll("#voices .vrow").forEach((r) => r.onclick = async () => {
-      document.querySelectorAll("#voices .vrow").forEach((x) => x.classList.remove("sel"));
-      r.classList.add("sel"); await send("voice", r.dataset.id); toast("已换音色,点「听听」");
+      `<div class="vrow${cur.voice === v.id ? " sel" : ""}" data-id="${v.id}" data-eng="${v.engine}">` +
+      `<span class="vinfo">${v.name}<span class="eng">${v.engine}</span></span>` +
+      `<button class="pv">▶ 试听</button>` +
+      `<button class="pick">${cur.voice === v.id ? "✓ 已选" : "选择"}</button></div>`).join("");
+    let pvCtx = null, pvSrc = null;
+    async function previewVoice(engine, id, btn) {
+      btn.disabled = true; btn.textContent = "⋯";
+      try {
+        pvCtx = pvCtx || new (window.AudioContext || window.webkitAudioContext)();
+        pvCtx.resume();
+        if (pvSrc) { try { pvSrc.stop(); } catch {} pvSrc = null; }
+        const url = `/tts?text=${encodeURIComponent("你好呀,我是雪莉,这是我的声音～")}` +
+          `&engine=${encodeURIComponent(engine)}&voice=${encodeURIComponent(id)}&rate=${encodeURIComponent(cur.rate || "")}`;
+        const buf = await pvCtx.decodeAudioData(await (await fetch(url)).arrayBuffer());
+        pvSrc = pvCtx.createBufferSource(); pvSrc.buffer = buf;
+        pvSrc.connect(pvCtx.destination); pvSrc.start();
+      } catch { toast("这个音色试听失败(引擎可能不可用)"); }
+      btn.disabled = false; btn.textContent = "▶ 试听";
+    }
+    document.querySelectorAll("#voices .vrow").forEach((r) => {
+      r.querySelector(".pv").onclick = (e) => previewVoice(r.dataset.eng, r.dataset.id, e.target);
+      r.querySelector(".pick").onclick = async () => {
+        document.querySelectorAll("#voices .vrow").forEach((x) => {
+          x.classList.remove("sel"); x.querySelector(".pick").textContent = "选择";
+        });
+        r.classList.add("sel"); r.querySelector(".pick").textContent = "✓ 已选";
+        await send("voice", r.dataset.id); toast("已换音色,全设备生效");
+      };
     });
     // 语速回显
     if (cur.rate) { const n = parseInt(cur.rate, 10);
