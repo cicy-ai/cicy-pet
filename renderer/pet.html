@@ -225,47 +225,54 @@
         s.connect(g); g.connect(audioCtx.destination); s.start();
       } catch {}
     }
-    // 她飞入这台设备:显示形象 + 入场特效 + 打招呼(桌面走真窗口飞行,手机走画布内飞入)
+    // 幽灵出入场(直播特效,收进动作库):不改变"她在哪",纯表演。
+    // [隐身]=向上飘散淡出;[现身]=科技闪现声+从上方飘落显形。
+    function ghostOut() {
+      const m = window.__model;
+      if (!m || !m.visible) return;
+      const y0 = m.y, t0 = performance.now(), DUR = 700;
+      (function step() {
+        const p = Math.min(1, (performance.now() - t0) / DUR);
+        const e = p * p * (3 - 2 * p);
+        m.y = y0 - e * 150; m.alpha = 1 - p;
+        if (p < 1) requestAnimationFrame(step);
+        else { m.visible = false; m.alpha = 1; m.y = y0; }
+      })();
+    }
+    function ghostIn() {
+      const m = window.__model;
+      if (!m || (m.visible && m.alpha >= 1)) return;
+      entranceSfx();
+      m.visible = true;
+      const yT = m.y, t0 = performance.now(), DUR = 700;
+      (function step() {
+        const p = Math.min(1, (performance.now() - t0) / DUR);
+        const e = p * p * (3 - 2 * p);
+        m.y = yT - (1 - e) * 150; m.alpha = p;
+        if (p < 1) requestAnimationFrame(step);
+        else { m.alpha = 1; m.y = yT; }
+      })();
+    }
+
+    // 她飞入这台设备(正常漫游出场):幽灵飘落显形 + 科技闪现声,桌面手机同一套。
     async function arrive() {
       if (present) return;
       present = true;
-      entranceSfx();                                    // 现身"闪现"声
-      const m = window.__model;
-      if (m) { m.visible = true; m.alpha = 1; }        // 复位(离开时淡到 0 过)
       const ld = document.getElementById("loading"); if (ld) ld.classList.add("hidden");
       const ac = document.getElementById("awayCard"); if (ac) ac.classList.remove("show");   // 她回来了,状态卡马上收
       if (typeof reflectLoc === "function") reflectLoc();
-      if (window.electronAPI) { try { await windowFlight("我来啦——！", typeof landingSpot === "function" ? landingSpot() : undefined); } catch { playMove("flyin"); speak("我来啦——！"); } }
-      else { playMove("flyin"); setTimeout(() => speak("我来" + (DEVICE_NAME[DEVICE] || "") + "啦——！"), 300); }
+      const m = window.__model;
+      if (m) { m.visible = false; m.alpha = 0; ghostIn(); }
+      setTimeout(() => speak("我来" + (DEVICE_NAME[DEVICE] || "") + "啦——！"), 500);
     }
-    // 她离开这台设备:桌面=甩出屏;手机=画布内翻滚淡出。都要「马上」开始消失。
+    // 她离开这台设备(正常漫游离场):幽灵飘散淡出,桌面手机同一套。
     function leave() {
       if (!present) return;
       present = false;
       try { stopSpeaking(); } catch {}
-      if (window.electronAPI) {
-        try { flingOut(2300, -450); } catch {}
-        setTimeout(() => { if (window.__model && !present) window.__model.visible = false; }, 1400);
-      } else {
-        petFlyOffCanvas();   // 手机:立刻翻滚+飞出+淡出
-      }
-      // 等她飞走了(~0.9s)再亮出正中的状态卡,别跟飞出动画抢镜
+      ghostOut();
+      // 等她飘散了(~0.9s)再亮出正中的状态卡,别跟动画抢镜
       setTimeout(() => { if (!present && typeof reflectLoc === "function") reflectLoc(); }, 900);
-    }
-    // 手机版「离场」:轻轻上浮 + 淡出,像一缕光散场。不翻跟头——翻跟头是特效,
-    // 不能用在所有转场(用户 2026-07-18)。
-    function petFlyOffCanvas() {
-      const m = window.__model;
-      if (!m) return;
-      const x0 = m.x, y0 = m.y, t0 = performance.now(), DUR = 700;
-      (function step() {
-        if (present) { m.alpha = 1; m.x = x0; m.y = y0; return; }   // 中途又被召回
-        const p = Math.min(1, (performance.now() - t0) / DUR);
-        const e = p * p * (3 - 2 * p);   // smoothstep,起步柔和
-        m.y = y0 - e * 150; m.alpha = 1 - p;
-        if (p < 1) requestAnimationFrame(step);
-        else { m.visible = false; m.alpha = 1; m.x = x0; m.y = y0; }
-      })();
     }
 
     // 配置：URL 参数 > localStorage > 默认。settings.html 写 localStorage + 广播，
@@ -1442,6 +1449,8 @@
       "[停舞]": () => { setDance(false); stopMusic(); },
       "[唱歌]": () => { singShow(); },
       "[停唱]": () => { stopSing(); },
+      "[隐身]": () => ghostOut(),
+      "[现身]": () => ghostIn(),
       "[转圈]": () => playMove("spin"),
       "[飞入]": () => windowFlight(),
       "[甩飞]": () => flingOut(2300, -450),
@@ -2525,7 +2534,7 @@
           if (m.cmd === "leave")  { if (String(arg) === CLIENT_ID) leave();  return; }
           if (m.cmd === "arrive") { if (String(arg) === CLIENT_ID) arrive(); return; }
           // 她不在这台时,只听 goto/换装/持久化指令;发声/演出类忽略(在别的设备上)
-          const localAct = ["notebook","dance","stopdance","sing","stopsing","spin","stop","say","ask","testvoice",
+          const localAct = ["notebook","dance","stopdance","sing","stopsing","vanish","appear","spin","stop","say","ask","testvoice",
                             "titlecard","demo","next","reset","fling","comeback"].includes(m.cmd);
           if (localAct && !present) return;
 
@@ -2543,6 +2552,8 @@
             case "stopdance": setDance(false); stopMusic(); break;
             case "sing":      singShow(); break;
             case "stopsing":  stopSing(); break;
+            case "vanish":    ghostOut(); break;
+            case "appear":    ghostIn(); break;
             case "spin":      playMove("spin"); break;
             case "stop":      sayQ.length = 0; stopSing(); stopSpeaking(); break;
             case "say":       if (arg) enqueueSay(String(arg)); break;
