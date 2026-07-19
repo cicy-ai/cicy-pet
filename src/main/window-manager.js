@@ -37,12 +37,13 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
         ctx.settingsWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
         ctx.settingsWindow.setAlwaysOnTop(true, 'floating');
 
-        // 设置界面由进程内服务（:13004）提供，和 pet.html 同源，靠 BroadcastChannel
-        // 直接联动（换角色/换音色实时生效）。服务没起来时兜底直接读文件。
-        const settingsUrl = process.env.SETTINGS_URL || 'http://127.0.0.1:13004/settings.html';
+        // 一套配置 UI 走天下(用户 2026-07-19:"不要用两套配置的 ui"):
+        // 桌面设置窗和手机 WebView 加载同一张 config.html;桌面专属区(窗口大小)
+        // 由页面检测 electronAPI 自行显示。旧 settings.html 已退役删除。
+        const settingsUrl = process.env.SETTINGS_URL || 'http://127.0.0.1:13004/config.html';
         ctx.settingsWindow.loadURL(settingsUrl).catch((e) => {
             console.error('[settings] loadURL failed, falling back:', e.message);
-            ctx.settingsWindow.loadFile(deps.path.join(deps.basePath, 'renderer', 'settings.html'));
+            ctx.settingsWindow.loadFile(deps.path.join(deps.basePath, 'renderer', 'config.html'));
         });
         ctx.settingsWindow.on('close', (e) => {
             if (!ctx.isQuitting) {
