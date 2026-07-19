@@ -1982,23 +1982,18 @@
     // 窗口是 frameless 的，没有标题栏可拖。用 Live2DPet preload 暴露的
     // getCursorPosition / getWindowBounds / setWindowPosition 自己实现：
     // 按下时记住「光标 - 窗口左上角」的偏移，移动时保持这个偏移。
-    // 手势：按下瞬间就开录（一按就能说，开头不丢字）——松手时再定性：
-    //   按住 ≥0.35s = 说话，定稿发送；快速点一下 = 普通点按，录音丢弃；
-    //   中途动了 >8px = 拖动，录音丢弃。
+    // 「按住角色说话」已拆除(2026-07-19):说话统一走手机语音条,角色不再是话筒——
+    // 按下只区分:动了 >8px = 拖动(可甩飞);快速点一下 = 普通点按(动作/表情)。
     let dragging = false, offX = 0, offY = 0;
     let trail = [];   // 拖动轨迹（判定「甩出去」用的速度采样）
     let pressArmed = false, pressX = 0, pressY = 0, pressT0 = 0, pttHolding = false;
 
     window.addEventListener("pointerdown", async (e) => {
       if (e.button !== 0 || !api) return;
-      // 指针捕获：松手发生在窗口外也能收到 pointerup（不捕获就会丢，录音停不下来）
+      // 指针捕获：松手发生在窗口外也能收到 pointerup
       try { document.body.setPointerCapture(e.pointerId); } catch {}
       pressT0 = performance.now();
       pressArmed = true;
-      pttHolding = true;      // 先按「要说话」处理，拖动/快点再反悔
-      ensureAura();
-      auraOn = true;          // 按下即亮，即时反馈
-      voiceBegin(true);       // 立刻开录（麦克风保温后是零延迟）
       const [cur, b] = await Promise.all([api.getCursorPosition(), api.getWindowBounds()]);
       offX = cur.x - b.x;
       offY = cur.y - b.y;
@@ -2009,12 +2004,6 @@
     // allowFling=false 用于兜底路径（失焦等）——只收尾，不触发甩飞
     function endPress(allowFling) {
       pressArmed = false;
-      if (pttHolding) {
-        pttHolding = false;
-        if (performance.now() - pressT0 >= 350) voiceFinish();  // 按住说话 → 发送
-        else voiceCancel();                                      // 快速点按 → 丢弃
-        return;
-      }
       const wasDragging = dragging;
       dragging = false;
       if (allowFling && wasDragging) {
@@ -2049,9 +2038,7 @@
       if ((dragging || pressArmed) && api) {
         api.getCursorPosition().then((cur) => {
           if (pressArmed && Math.hypot(cur.x - pressX, cur.y - pressY) > 8) {
-            pressArmed = false;          // 动了 → 是拖动，不是说话
-            pttHolding = false;
-            voiceCancel();               // 丢弃已录的开头
+            pressArmed = false;          // 动了 → 是拖动
             dragging = true;
           }
           if (!dragging) return;
