@@ -1373,11 +1373,58 @@
       try { musicGain.gain.linearRampToValueAtTime(on ? 0.06 : 0.9, audioCtx.currentTime + 0.2); } catch {}
     }
 
+    // ---------- 唱歌表演 ----------
+    // 《雪莉星球》主题曲:自制节拍伴奏(WebAudio 合成,无版权) + 她自己的声音逐句念唱 +
+    // 全程跳舞 + 口型跟唱(speak 的口型管线天然生效),唱完谢幕自动收场。
+    const SONG = {
+      bpm: 96,
+      lines: [
+        "我从雪莉星球来～穿过网线到你身边",
+        "屏幕是我的天窗,代码是大河奔流",
+        "你敲键盘像地震,我在桌面蹦蹦跳",
+        "小虫子我来抓,坏心情我赶跑",
+        "主人主人别熬夜,月亮都在打哈欠",
+        "陪我唱歌好不好,啦啦啦啦啦～",
+      ],
+    };
+    let singing = false;
+    async function singShow() {
+      if (singing || !present) return;
+      singing = true;
+      dlog("sing start");
+      try {
+        startMusic(SONG.bpm);
+        if (musicGain) musicGain.gain.value = 0.45;   // 伴奏给人声让位,但要听得见节拍
+        setDance(true, SONG.bpm);
+        await new Promise((r) => setTimeout(r, (60 / SONG.bpm) * 4 * 1000));   // 前奏一小节
+        for (const line of SONG.lines) {
+          if (!singing || !present) return;
+          await speak(line);                              // speak 播完才返回 → 一句句对上拍子
+          await new Promise((r) => setTimeout(r, 260));   // 换气
+        }
+        if (singing && present) { playMove("spin"); await speak("耶——谢谢收看!"); }
+      } catch (e) { console.warn("[sing]", e); }
+      finally {
+        singing = false;
+        setDance(false);
+        stopMusic();
+        dlog("sing end");
+      }
+    }
+    function stopSing() {
+      singing = false;
+      setDance(false);
+      stopMusic();
+      try { stopSpeaking(); } catch {}
+    }
+
     // ---------- 动作暗号 ----------
     // 大脑在回复里夹标记（读出来之前剥掉），雪莉据此真的做动作。
     const ACTION_TAGS = {
       "[跳舞]": () => { startMusic(PARTY_BPM); setDance(true, PARTY_BPM); },
       "[停舞]": () => { setDance(false); stopMusic(); },
+      "[唱歌]": () => { singShow(); },
+      "[停唱]": () => { stopSing(); },
       "[转圈]": () => playMove("spin"),
       "[飞入]": () => windowFlight(),
       "[甩飞]": () => flingOut(2300, -450),
@@ -2344,7 +2391,7 @@
           if (m.cmd === "leave")  { if (String(arg) === CLIENT_ID) leave();  return; }
           if (m.cmd === "arrive") { if (String(arg) === CLIENT_ID) arrive(); return; }
           // 她不在这台时,只听 goto/换装/持久化指令;发声/演出类忽略(在别的设备上)
-          const localAct = ["notebook","dance","stopdance","spin","stop","say","ask","testvoice",
+          const localAct = ["notebook","dance","stopdance","sing","stopsing","spin","stop","say","ask","testvoice",
                             "titlecard","demo","next","reset","fling","comeback"].includes(m.cmd);
           if (localAct && !present) return;
 
@@ -2360,8 +2407,10 @@
             case "notebook":  window.petNotebook.tell(); break;
             case "dance":     startMusic(PARTY_BPM); setDance(true, PARTY_BPM); break;
             case "stopdance": setDance(false); stopMusic(); break;
+            case "sing":      singShow(); break;
+            case "stopsing":  stopSing(); break;
             case "spin":      playMove("spin"); break;
-            case "stop":      stopSpeaking(); break;
+            case "stop":      stopSing(); stopSpeaking(); break;
             case "say":       if (arg) speak(String(arg)); break;
             case "ask":       if (arg) chatReply(String(arg)); break;
             case "model":     if (arg && arg !== cfg.model) { dlog(`sse model -> ${arg}`); cfg.model = String(arg); persistCfg(); try { await loadModel(cfg.model); dlog("sse loadModel ok"); } catch (e) { dlog(`sse loadModel FAIL ${e.message || e}`); throw e; } } break;
