@@ -1136,8 +1136,7 @@
           };
         } catch {}
         rec = { ctx, stream, proc, bufs, segs, ws, byHold: !!byHold };
-        ensureAura();
-        auraOn = true;                       // 脚下光环亮起
+        if (present) { ensureAura(); auraOn = true; }   // 光环=她在听的表现;她不在场就不点(人都不在,光圈很怪)
         duckMusic(true);                     // 派对音乐压低——别让 ASR 听一嘴动次打次
         proc.onaudioprocess = (e) => {
           if (!rec) return;
