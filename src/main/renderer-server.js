@@ -668,7 +668,17 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
               body: JSON.stringify({ win_id: pane, text, submit: true }),
             });
             if (!send.ok) throw new Error(`send ${send.status}`);
+            // 段落生长缓冲:current-reply 的文本是逐字长出来的,直接见到就发会把
+            // "半句"和"整句"各念一遍(用户实测"会 read 两次")。规则:同一段还在生长
+            // (新快照是旧快照的前缀延伸)就先攒着;段落结束(被清空/换了不同内容/轮次
+            // 完成)才下发定稿,seen 去重兜底。
             const seen = new Set();
+            let cur = '';
+            const flush = () => {
+              const t = cur.trim();
+              cur = '';
+              if (t && !seen.has(t)) { seen.add(t); emit({ say: t }); }
+            };
             const deadline = Date.now() + 180000;   // 长任务给足 3 分钟
             while (Date.now() < deadline && !res.writableEnded) {
               await new Promise((r) => setTimeout(r, 250));
@@ -677,8 +687,13 @@ function createServer({ appDir, cacheDir, assetDir = null, port = 13004, log = (
               const turn = (j.turn_id || '').trim();
               if (turn === baseTurn && !j.complete) continue;   // 还没开新轮
               const ans = (j.answer || '').trim();
-              if (ans && !seen.has(ans)) { seen.add(ans); emit({ say: ans }); }
-              if (turn && turn !== baseTurn && j.complete) { emit({ done: true, answer: ans }); return res.end(); }
+              if (ans) {
+                if (!cur || ans.startsWith(cur)) cur = ans;   // 同段生长中,继续攒
+                else { flush(); cur = ans; }                  // 内容换了 → 上一段定稿下发
+              } else if (cur) {
+                flush();                                      // 段结束(开始跑工具,文本被清)
+              }
+              if (turn && turn !== baseTurn && j.complete) { flush(); emit({ done: true, answer: ans }); return res.end(); }
             }
             emit({ done: true, timeout: true });
             res.end();
