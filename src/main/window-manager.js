@@ -57,21 +57,16 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
 
     // ========== Pet Window ==========
 
-    // 回到右下角:独立功能,只管归位+显示(「显示宠物」不再偷偷挪位置——两码事)
-    function dockPetWindow() {
-        if (!ctx.petWindow || ctx.petWindow.isDestroyed()) return createPetWindow();
-        const { screen } = require('electron');
-        const wa = screen.getPrimaryDisplay().workAreaSize;
-        ctx.petWindow.setPosition(wa.width - 220, wa.height - 220);
-        ctx.petWindow.show();
-        ctx.petWindow.focus();
-        return { success: true };
-    }
-
     async function createPetWindow(data) {
         try {
             if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
-                // 只负责"显示":窗口在哪就在哪现身,不动位置(归位是「回到右下角」的事)
+                // 「显示宠物」一步到位:现身;窗口若被甩到屏外,顺便拉回右下角(同一个功能)
+                const { screen } = require('electron');
+                const wa = screen.getPrimaryDisplay().workAreaSize;
+                const b = ctx.petWindow.getBounds();
+                const offscreen = b.x > wa.width - 40 || b.x + b.width < 40 ||
+                                  b.y > wa.height - 40 || b.y + b.height < 40;
+                if (offscreen) ctx.petWindow.setPosition(wa.width - 220, wa.height - 220);
                 ctx.petWindow.show();
                 ctx.petWindow.focus();
                 return { success: true, message: 'already open' };
@@ -276,7 +271,7 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
         }
     });
 
-    return { createSettingsWindow, createPetWindow, dockPetWindow };
+    return { createSettingsWindow, createPetWindow };
 }
 
 module.exports = { registerWindowHandlers };
